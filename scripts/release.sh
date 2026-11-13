@@ -21,6 +21,7 @@ cd "$(dirname "$0")/.."
 : "${SESHKA_SIGNING_DIR:?set SESHKA_SIGNING_DIR to the folder with the signing material}"
 : "${SESHKA_AWS_PROFILE:?set SESHKA_AWS_PROFILE to an AWS profile that can write to the downloads bucket}"
 KEYS=$(cd "$SESHKA_SIGNING_DIR" && pwd)
+VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Resources/Info.plist)
 STACK=seshka-releases
 REGION=eu-west-1
 output() {  # output <key>   a value the downloads stack exports
@@ -38,7 +39,6 @@ if aws s3 ls "s3://$BUCKET/Seshka-$VERSION.zip" --profile "$SESHKA_AWS_PROFILE" 
     echo "(FORCE=1 replaces it anyway and clears the CDN's copy.)"
     exit 1
 fi
-VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Resources/Info.plist)
 SPARKLE=.build/artifacts/sparkle/Sparkle/bin
 WORK=$(mktemp -d)
 KEYCHAIN="$WORK/signing.keychain-db"
