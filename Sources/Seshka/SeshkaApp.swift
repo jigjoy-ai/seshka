@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct SeshkaApp: App {
     @StateObject private var store: Store
+    @StateObject private var updater: Updater
 
     init() {
         // Command-line mode, used for testing the scan and kill logic without the UI:
@@ -31,6 +32,7 @@ struct SeshkaApp: App {
             exit(0)
         }
         _store = StateObject(wrappedValue: Store())
+        _updater = StateObject(wrappedValue: Updater())
         // Menu bar only: no Dock icon even when run outside an app bundle.
         NSApplication.shared.setActivationPolicy(.accessory)
     }
@@ -39,6 +41,7 @@ struct SeshkaApp: App {
         MenuBarExtra {
             ContentView()
                 .environmentObject(store)
+                .environmentObject(updater)
         } label: {
             Image(nsImage: store.orphanCount > 0 ? Icon.menuBarOpen : Icon.menuBarClosed)
             if store.orphanCount > 0 {

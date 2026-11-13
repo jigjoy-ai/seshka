@@ -20,6 +20,16 @@
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <key>SUFeedURL</key>
+    <string>https://seshka.dev/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>I6hYnX6BLkZjjE0X7vBvLwjaemE/JdyT2fKvBbRWOg0=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUAutomaticallyUpdate</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>21600</integer>
     <key>LSUIElement</key>
     <true/>
     <key>NSHighResolutionCapable</key>

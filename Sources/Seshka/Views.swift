@@ -3,10 +3,11 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var store: Store
+    @EnvironmentObject private var updater: Updater
     @State private var tab: Tab = .orphans
     @State private var spin = 0.0
 
-    enum Tab: Hashable { case orphans, live, settings }
+    enum Tab: Hashable { case orphans, live, settings, about }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,6 +31,8 @@ struct ContentView: View {
                     )
                 case .settings:
                     SettingsView()
+                case .about:
+                    AboutView()
                 }
             }
             .frame(maxHeight: .infinity)
@@ -59,6 +62,11 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            if let version = updater.availableVersion {
+                Button("Update to \(version)") { updater.check() }
+                    .buttonStyle(PillButtonStyle(tint: .green))
+                    .help("A new version of seshka is ready")
+            }
             Button {
                 store.refresh()
             } label: {
@@ -86,6 +94,7 @@ struct ContentView: View {
             TabButton(title: "Leftover", icon: "moon.zzz", count: store.orphanCount, selected: tab == .orphans) { tab = .orphans }
             TabButton(title: "Live", icon: "bolt", count: store.liveCount, selected: tab == .live) { tab = .live }
             TabButton(title: "Settings", icon: "gearshape", count: nil, selected: tab == .settings) { tab = .settings }
+            TabButton(title: "About", icon: "info.circle", count: nil, selected: tab == .about) { tab = .about }
         }
         .padding(4)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.06)))
@@ -494,29 +503,6 @@ private struct SettingsView: View {
                             .disabled(newPattern.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
-
-                section("ABOUT") {
-                    Text("seshka finds everything Claude Code started by looking for CLAUDECODE=1 in each process's environment. A process counts as leftover once the Claude Code process that started it is gone.")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 14) {
-                        Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")")
-                            .foregroundStyle(.tertiary)
-                        Spacer()
-                        Link("seshka.dev", destination: URL(string: "https://seshka.dev")!)
-                    }
-                    .font(.system(size: 11))
-                    Divider().opacity(0.4)
-                    Text("More from the people who made this")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.tertiary)
-                    HStack(spacing: 14) {
-                        Link("JigJoy on GitHub", destination: URL(string: "https://github.com/jigjoy-ai")!)
-                        Link("lotus015 on GitHub", destination: URL(string: "https://github.com/lotus015")!)
-                    }
-                    .font(.system(size: 11))
-                }
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
@@ -544,6 +530,96 @@ private struct SettingsView: View {
             .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.08)))
         }
+    }
+}
+
+// MARK: - About
+
+private struct AboutView: View {
+    @EnvironmentObject private var store: Store
+    @EnvironmentObject private var updater: Updater
+
+    private var version: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                VStack(spacing: 4) {
+                    Matryoshka(openness: store.orphanCount > 0 ? 1 : 0)
+                        .frame(width: 92, height: 92)
+                    Text("seshka").font(.system(size: 20, weight: .bold))
+                    Text("Version \(version)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Text("Kill what Claude Code left behind.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 2)
+                }
+                .padding(.top, 6)
+
+                card {
+                    HStack {
+                        Text("Updates").font(.system(size: 12, weight: .medium))
+                        Spacer()
+                        Button("Check for Updates…") { updater.check() }
+                            .buttonStyle(PillButtonStyle(tint: .secondary))
+                            .disabled(!updater.canCheck)
+                    }
+                    Toggle(isOn: Binding(get: { updater.checksAutomatically }, set: { updater.checksAutomatically = $0 })) {
+                        Text("Check automatically").font(.system(size: 12))
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                }
+
+                card {
+                    Text("Made by lotus from the JigJoy team")
+                        .font(.system(size: 12, weight: .medium))
+                    VStack(alignment: .leading, spacing: 7) {
+                        link("lotus015 on GitHub", "https://github.com/lotus015")
+                        link("JigJoy on GitHub", "https://github.com/jigjoy-ai")
+                        link("Source code", "https://github.com/jigjoy-ai/seshka")
+                        link("seshka.dev", "https://seshka.dev")
+                    }
+                }
+
+                card {
+                    Text("How it works").font(.system(size: 12, weight: .medium))
+                    Text("seshka finds everything Claude Code started by looking for CLAUDECODE=1 in each process's environment. A process counts as leftover once the Claude Code process that started it is gone. Nothing leaves your Mac.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text("Free and open source, under the MIT license.")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 12)
+        }
+    }
+
+    private func link(_ title: String, _ address: String) -> some View {
+        Link(destination: URL(string: address)!) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.up.right.square").font(.system(size: 11))
+                Text(title).font(.system(size: 12))
+            }
+        }
+    }
+
+    private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            content()
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.08)))
     }
 }
 
