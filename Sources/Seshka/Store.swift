@@ -7,6 +7,8 @@ import SwiftUI
 final class Store: ObservableObject {
     @Published private(set) var orphans: [SessionGroup] = []
     @Published private(set) var live: [SessionGroup] = []
+    /// Every open Claude Code session, the longest idle first.
+    @Published private(set) var sessions: [RunningSession] = []
     @Published private(set) var killing: Set<Int32> = []
     @Published private(set) var lastScan: Date?
     @Published private(set) var scanning = false
@@ -22,6 +24,11 @@ final class Store: ObservableObject {
     /// Commands containing any of these are never touched by "kill session" or "kill all".
     @Published var protectedPatterns: [String] {
         didSet { UserDefaults.standard.set(protectedPatterns, forKey: Keys.protected) }
+    }
+
+    /// A session waiting for input this long counts as idle, and "Kill idle" takes it.
+    @Published var idleLimitMinutes: Int {
+        didSet { UserDefaults.standard.set(idleLimitMinutes, forKey: Keys.idleLimit) }
     }
 
     @Published var interval: Int {
@@ -41,6 +48,7 @@ final class Store: ObservableObject {
     private enum Keys {
         static let protected = "protectedPatterns"
         static let interval = "refreshInterval"
+        static let idleLimit = "idleLimitMinutes"
     }
 
     init() {
@@ -48,12 +56,17 @@ final class Store: ObservableObject {
         protectedPatterns = defaults.stringArray(forKey: Keys.protected) ?? ["limactl"]
         let saved = defaults.integer(forKey: Keys.interval)
         interval = saved > 0 ? saved : 30
+        let limit = defaults.integer(forKey: Keys.idleLimit)
+        idleLimitMinutes = limit > 0 ? limit : 60
         startTimer()
         refresh()
     }
 
     var orphanCount: Int { orphans.reduce(0) { $0 + $1.procs.count } }
-    var liveCount: Int { live.reduce(0) { $0 + $1.procs.count } }
+    /// Sessions that have been waiting for input longer than the limit.
+    var idleSessions: [RunningSession] {
+        sessions.filter { ($0.idleSeconds() ?? -1) >= idleLimitMinutes * 60 }
+    }
     var orphanMemory: UInt64 { orphans.reduce(0) { $0 + $1.memory } }
 
     /// Orphans that "kill all" would actually kill.
@@ -94,11 +107,16 @@ final class Store: ObservableObject {
         Task.detached(priority: .utility) {
             let procs = Scanner.scan()
             let orphans = Scanner.group(procs.filter { !$0.sessionAlive })
-            let live = Scanner.group(procs.filter { $0.sessionAlive && $0.age >= minLiveAge })
+            let sessions = Scanner.sessions(procs: procs)
+                .sorted { ($0.idleSeconds() ?? -1, $0.process.age) > ($1.idleSeconds() ?? -1, $1.process.age) }
+            // Background processes whose session could not be matched to an open one still get listed.
+            let matched = Set(sessions.compactMap(\.sessionID))
+            let live = Scanner.group(procs.filter { $0.sessionAlive && $0.age >= minLiveAge && !matched.contains($0.sessionID) })
             await MainActor.run {
                 withAnimation(Store.listAnimation) {
                     self.orphans = orphans
                     self.live = live
+                    self.sessions = sessions
                 }
                 self.lastScan = Date()
                 self.scanning = false
@@ -126,6 +144,10 @@ final class Store: ObservableObject {
                 withAnimation(Store.listAnimation) {
                     self.orphans = Store.removing(pids, from: self.orphans)
                     self.live = Store.removing(pids, from: self.live)
+                    self.sessions.removeAll { pids.contains($0.process.pid) }
+                    for i in self.sessions.indices {
+                        self.sessions[i].procs.removeAll { pids.contains($0.pid) }
+                    }
                 }
                 self.refresh()
             }
@@ -157,6 +179,16 @@ final class Store: ObservableObject {
 
     func killAllOrphans() {
         kill(killableOrphans)
+    }
+
+    /// Ends a session: the Claude Code process and what it has running, except protected processes.
+    /// The conversation itself is not lost; `claude --resume` brings it back.
+    func kill(running session: RunningSession) {
+        kill([session.process] + session.procs.filter { !isProtected($0) })
+    }
+
+    func killIdleSessions() {
+        kill(idleSessions.flatMap { [$0.process] + $0.procs.filter { !isProtected($0) } })
     }
 
     // MARK: - Launch at login

@@ -13,6 +13,7 @@ seshka is a macOS menu bar app that finds them and kills them.
 - Groups them by session, with their ports, memory and age.
 - Kills one process, one session's worth, or all of them.
 - Tells you how much memory they were holding.
+- Shows every open session too: whether it is working or idle, for how long, and what it holds. Idle ones can be ended in one click.
 
 The doll in the menu bar is open while something is left behind, and closed when your Mac is clean.
 

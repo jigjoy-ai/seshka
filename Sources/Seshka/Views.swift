@@ -7,7 +7,7 @@ struct ContentView: View {
     @State private var tab: Tab = .orphans
     @State private var spin = 0.0
 
-    enum Tab: Hashable { case orphans, live, settings, about }
+    enum Tab: Hashable { case orphans, sessions, settings, about }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,13 +22,8 @@ struct ContentView: View {
                         emptyTitle: "No leftover processes",
                         emptyDetail: "Nothing started by a closed Claude Code session is still running."
                     )
-                case .live:
-                    SessionList(
-                        groups: store.live,
-                        celebrates: false,
-                        emptyTitle: "No background processes",
-                        emptyDetail: "Running sessions have nothing in the background older than a minute."
-                    )
+                case .sessions:
+                    SessionsView()
                 case .settings:
                     SettingsView()
                 case .about:
@@ -92,7 +87,7 @@ struct ContentView: View {
     private var tabBar: some View {
         HStack(spacing: 4) {
             TabButton(title: "Leftover", icon: "moon.zzz", count: store.orphanCount, selected: tab == .orphans) { tab = .orphans }
-            TabButton(title: "Live", icon: "bolt", count: store.liveCount, selected: tab == .live) { tab = .live }
+            TabButton(title: "Sessions", icon: "terminal", count: store.idleSessions.count, selected: tab == .sessions) { tab = .sessions }
             TabButton(title: "Settings", icon: "gearshape", count: nil, selected: tab == .settings) { tab = .settings }
             TabButton(title: "About", icon: "info.circle", count: nil, selected: tab == .about) { tab = .about }
         }
@@ -459,6 +454,25 @@ private struct SettingsView: View {
                     }
                 }
 
+                section("SESSIONS") {
+                    HStack {
+                        Text("A session is idle after waiting").font(.system(size: 12))
+                        Spacer()
+                        Picker("", selection: $store.idleLimitMinutes) {
+                            Text("15 min").tag(15)
+                            Text("30 min").tag(30)
+                            Text("1 hour").tag(60)
+                            Text("2 hours").tag(120)
+                            Text("4 hours").tag(240)
+                        }
+                        .labelsHidden()
+                        .frame(width: 100)
+                    }
+                    Text("Idle sessions are counted on the Sessions tab, and Kill idle ends them.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
+
                 section("STARTUP") {
                     Toggle(isOn: Binding(
                         get: { store.launchesAtLogin },
@@ -530,6 +544,176 @@ private struct SettingsView: View {
             .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.08)))
         }
+    }
+}
+
+// MARK: - Sessions
+
+/// Every open Claude Code session: whether it is working or waiting, for how long, and what it holds.
+private struct SessionsView: View {
+    @EnvironmentObject private var store: Store
+    @State private var confirming = false
+
+    var body: some View {
+        if store.sessions.isEmpty && store.live.isEmpty {
+            VStack(spacing: 8) {
+                Image(systemName: "terminal")
+                    .font(.system(size: 30, weight: .light))
+                    .foregroundStyle(.secondary)
+                Text("No sessions open").font(.system(size: 13, weight: .semibold))
+                Text("Claude Code sessions show up here while they run.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(30)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            VStack(spacing: 0) {
+                summary
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(store.sessions) { session in
+                            RunningSessionCard(session: session)
+                                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                        }
+                        // Background processes whose session could not be matched to an open one.
+                        ForEach(store.live) { group in
+                            SessionCard(group: group)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+                }
+            }
+        }
+    }
+
+    private var summary: some View {
+        let idle = store.idleSessions
+        return HStack(spacing: 8) {
+            if confirming {
+                Text("End \(idle.count) idle session\(idle.count == 1 ? "" : "s")?")
+                    .font(.system(size: 11.5, weight: .medium))
+                Spacer()
+                Button("Cancel") { confirming = false }
+                    .buttonStyle(PillButtonStyle(tint: .secondary))
+                Button("Kill idle") {
+                    confirming = false
+                    store.killIdleSessions()
+                }
+                .buttonStyle(PillButtonStyle(tint: .red, filled: true))
+            } else {
+                Text("\(store.sessions.count) open  ·  \(idle.count) idle over \(limitText)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if !idle.isEmpty {
+                    Button("Kill idle") { confirming = true }
+                        .buttonStyle(PillButtonStyle(tint: .red))
+                        .help("End every session that has been waiting longer than \(limitText). They can be resumed later.")
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 9)
+    }
+
+    private var limitText: String {
+        store.idleLimitMinutes >= 60 ? "\(store.idleLimitMinutes / 60) h" : "\(store.idleLimitMinutes) min"
+    }
+}
+
+private struct RunningSessionCard: View {
+    @EnvironmentObject private var store: Store
+    let session: RunningSession
+    @State private var confirming = false
+
+    private var overLimit: Bool { (session.idleSeconds() ?? -1) >= store.idleLimitMinutes * 60 }
+
+    var body: some View {
+        let killing = store.killing.contains(session.process.pid)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 9) {
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: 8, height: 8)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(session.title ?? session.project)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                if killing {
+                    ProgressView().controlSize(.small)
+                } else if confirming {
+                    Button("Cancel") { confirming = false }
+                        .buttonStyle(PillButtonStyle(tint: .secondary))
+                    Button("End it") {
+                        confirming = false
+                        store.kill(running: session)
+                    }
+                    .buttonStyle(PillButtonStyle(tint: .red, filled: true))
+                } else {
+                    Button("Kill") {
+                        // A session that is working, or whose state is unknown, takes a second click.
+                        if session.status == .idle {
+                            store.kill(running: session)
+                        } else {
+                            confirming = true
+                        }
+                    }
+                    .buttonStyle(PillButtonStyle(tint: .red))
+                    .help("End this session and what it has running. It can be resumed later with claude --resume.")
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .opacity(killing ? 0.5 : 1)
+
+            if !session.procs.isEmpty {
+                Divider().opacity(0.4)
+                ForEach(session.procs) { proc in
+                    ProcRow(proc: proc)
+                        .transition(.opacity)
+                }
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.08)))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var dotColor: Color {
+        switch session.status {
+        case .busy: return .green
+        case .idle: return overLimit ? .orange : .secondary
+        case .other, .unknown: return Color.secondary.opacity(0.4)
+        }
+    }
+
+    private var statusText: String {
+        switch session.status {
+        case .busy: return "working"
+        case .idle: return session.idleSeconds().map { "idle \(humanAge($0))" } ?? "idle"
+        case .other(let name): return name
+        case .unknown: return "status unknown"
+        }
+    }
+
+    private var subtitle: String {
+        var parts: [String] = []
+        if session.title != nil { parts.append(session.project) }
+        parts.append(statusText)
+        parts.append("open \(humanAge(session.process.age))")
+        parts.append(formatBytes(session.memory))
+        if !session.procs.isEmpty {
+            parts.append("\(session.procs.count) in background")
+        }
+        return parts.joined(separator: "  ·  ")
     }
 }
 

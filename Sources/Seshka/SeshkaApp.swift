@@ -11,7 +11,8 @@ struct SeshkaApp: App {
         //   Seshka --list         print what the menu would show
         //   Seshka --kill <pid>   run the same kill routine the buttons use
         let args = CommandLine.arguments
-        if args.count >= 2, args[1] == "--list" || args[1] == "--kill" {
+        //   Seshka --kill-session <pid>   end an open session the way the Sessions tab does
+        if args.count >= 2, args[1] == "--list" || args[1] == "--kill" || args[1] == "--kill-session" {
             CLI.run(Array(args.dropFirst()))
             exit(0)
         }
@@ -63,6 +64,18 @@ enum CLI {
             dump(orphans)
             print("live: \(live.reduce(0) { $0 + $1.procs.count })")
             dump(live)
+            let sessions = Scanner.sessions(procs: procs)
+            print("sessions: \(sessions.count)")
+            for s in sessions {
+                let state: String
+                switch s.status {
+                case .busy: state = "working"
+                case .idle: state = "idle \(s.idleSeconds().map(humanAge) ?? "?")"
+                case .other(let name): state = name
+                case .unknown: state = "unknown"
+                }
+                print("  \(s.process.pid)\t\(state)\topen \(humanAge(s.process.age))\t\(formatBytes(s.memory))\t\(s.procs.count) bg\t\(s.title ?? s.project)")
+            }
         case "--kill":
             guard args.count == 2, let pid = Int32(args[1]),
                   let proc = procs.first(where: { $0.pid == pid }) else {
@@ -72,6 +85,14 @@ enum CLI {
             let forced = Killer.terminate([proc])
             let gone = !Killer.isRunning(pid)
             print("pid \(pid): \(gone ? "gone, freed \(formatBytes(proc.memory))" : "STILL RUNNING") (\(forced.isEmpty ? "exited on SIGTERM" : "needed SIGKILL"))")
+        case "--kill-session":
+            guard args.count == 2, let pid = Int32(args[1]),
+                  let session = Scanner.sessions(procs: procs).first(where: { $0.process.pid == pid }) else {
+                print("not an open Claude Code session: \(args.dropFirst().joined(separator: " "))")
+                exit(1)
+            }
+            Killer.terminate([session.process] + session.procs)
+            print("session \(pid): \(Killer.isRunning(pid) ? "STILL RUNNING" : "ended, freed \(formatBytes(session.memory))")")
         default:
             break
         }
