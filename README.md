@@ -5,7 +5,7 @@
 Claude Code sessions end. The dev servers, watchers and emulators they started don't.
 seshka is a macOS menu bar app that finds them and kills them.
 
-![The seshka logo, closed and open](design/logo-preview.png)
+![seshka listing 27 leftover processes, and the same popover after killing them: Freed 5.6 GB](docs/screenshot.png)
 
 ## What it does
 
