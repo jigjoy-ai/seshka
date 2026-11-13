@@ -30,6 +30,14 @@ output() {  # output <key>   a value the downloads stack exports
 BUCKET=$(output Bucket)
 DOWNLOADS=$(output DownloadsUrl)
 [ -n "$BUCKET" ] && [ -n "$DOWNLOADS" ] || { echo "Could not read the $STACK stack; deploy deploy/releases.yaml first"; exit 1; }
+
+# A published version never changes: its archive is cached for a year, and the feed carries its signature.
+# Fix a release by raising the version, not by publishing the same one again.
+if aws s3 ls "s3://$BUCKET/Seshka-$VERSION.zip" --profile "$SESHKA_AWS_PROFILE" >/dev/null 2>&1 && [ "${FORCE:-}" != 1 ]; then
+    echo "seshka $VERSION is already published. Raise the version in Resources/Info.plist."
+    echo "(FORCE=1 replaces it anyway and clears the CDN's copy.)"
+    exit 1
+fi
 VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Resources/Info.plist)
 SPARKLE=.build/artifacts/sparkle/Sparkle/bin
 WORK=$(mktemp -d)
@@ -92,11 +100,7 @@ rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"
 
 echo "==> Building and notarizing the disk image"
-mkdir "$WORK/dmg"
-ditto "$APP" "$WORK/dmg/Seshka.app"
-ln -s /Applications "$WORK/dmg/Applications"
-rm -f "$DMG"
-hdiutil create -volname "Seshka" -srcfolder "$WORK/dmg" -ov -format UDZO "$DMG" >/dev/null
+scripts/make-dmg.sh "$APP" "$DMG"
 codesign --force --sign "$IDENTITY" --keychain "$KEYCHAIN" --timestamp "$DMG"
 notarize "$DMG"
 xcrun stapler staple "$DMG"
@@ -116,6 +120,10 @@ upload() {  # upload <file> <name> <cache-control> [content-type]
 upload "$ZIP" "Seshka-$VERSION.zip" "public, max-age=31536000, immutable"
 upload "$DMG" "Seshka.dmg" "no-cache"
 upload "$UPDATES/appcast.xml" "appcast.xml" "no-cache" "application/xml"
+if [ "${FORCE:-}" = 1 ]; then
+    aws cloudfront create-invalidation --profile "$SESHKA_AWS_PROFILE" --distribution-id "$(output DistributionId)" \
+        --paths "/Seshka-$VERSION.zip" >/dev/null
+fi
 
 echo
 echo "seshka $VERSION is published:"

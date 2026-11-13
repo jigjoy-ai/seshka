@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 400" width="560" height="400">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="42%" r="75%">
+      <stop offset="0" stop-color="#F0584A"/>
+      <stop offset="1" stop-color="#C8392E"/>
+    </radialGradient>
+    <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+      <circle cx="1.5" cy="1.5" r="1" fill="#FFE8C7" opacity="0.16"/>
+    </pattern>
+  </defs>
+  <rect width="560" height="400" fill="url(#glow)"/>
+  <rect width="560" height="400" fill="url(#dots)"/>
+  <!-- The arrow from the app (centred at 150,185) to the Applications folder (410,185). -->
+  <g fill="none" stroke="#FFE8C7" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" opacity="0.92">
+    <path d="M238 185H318"/>
+    <path d="M298 163L320 185L298 207"/>
+  </g>
+  <text x="280" y="338" text-anchor="middle" font-family="-apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif" font-size="15" font-weight="600" fill="#FFE8C7">Drag Seshka to Applications</text>
+</svg>
