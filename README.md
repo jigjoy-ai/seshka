@@ -33,4 +33,8 @@ Nothing leaves your Mac.
 
 ## License
 
-[MIT](LICENSE). Free and open source.
+MIT. Copyright (c) 2026 JigJoy. See [LICENSE](LICENSE).
+
+---
+
+Built by the [JigJoy](https://jigjoy.ai) team · Issues: [github.com/jigjoy-ai/seshka/issues](https://github.com/jigjoy-ai/seshka/issues) · Twitter: [@lotus_sbc](https://twitter.com/lotus_sbc)
