@@ -454,25 +454,6 @@ private struct SettingsView: View {
                     }
                 }
 
-                section("SESSIONS") {
-                    HStack {
-                        Text("A session is idle after waiting").font(.system(size: 12))
-                        Spacer()
-                        Picker("", selection: $store.idleLimitMinutes) {
-                            Text("15 min").tag(15)
-                            Text("30 min").tag(30)
-                            Text("1 hour").tag(60)
-                            Text("2 hours").tag(120)
-                            Text("4 hours").tag(240)
-                        }
-                        .labelsHidden()
-                        .frame(width: 100)
-                    }
-                    Text("Idle sessions are counted on the Sessions tab, and Kill idle ends them.")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
-                }
-
                 section("STARTUP") {
                     Toggle(isOn: Binding(
                         get: { store.launchesAtLogin },
@@ -553,22 +534,27 @@ private struct SettingsView: View {
 private struct SessionsView: View {
     @EnvironmentObject private var store: Store
     @State private var confirming = false
+    @State private var customizing = false
+
+    /// The waiting times offered as chips, in minutes. Anything else is set under Custom.
+    private static let presets = [30, 60, 120, 240, 480]
 
     var body: some View {
-        if store.sessions.isEmpty && store.live.isEmpty {
-            VStack(spacing: 8) {
-                Image(systemName: "terminal")
-                    .font(.system(size: 30, weight: .light))
-                    .foregroundStyle(.secondary)
-                Text("No sessions open").font(.system(size: 13, weight: .semibold))
-                Text("Claude Code sessions show up here while they run.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(30)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
+            idleCard
+            if store.sessions.isEmpty && store.live.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 30, weight: .light))
+                        .foregroundStyle(.secondary)
+                    Text("No sessions open").font(.system(size: 13, weight: .semibold))
+                    Text("Claude Code sessions show up here while they run.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(30)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
                 summary
                 ScrollView {
                     LazyVStack(spacing: 10) {
@@ -588,6 +574,68 @@ private struct SessionsView: View {
         }
     }
 
+    /// How long a session may wait, and whether seshka ends the ones that wait longer on its own.
+    private var idleCard: some View {
+        let isCustom = customizing || !Self.presets.contains(store.idleLimitMinutes)
+        return VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("End idle sessions automatically")
+                        .font(.system(size: 12, weight: .medium))
+                    Text(store.endsIdleSessions
+                         ? "Sessions waiting longer than \(formatLimit(store.idleLimitMinutes)) are ended on their own."
+                         : "Off. Sessions are only ended when you click.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Toggle("", isOn: $store.endsIdleSessions)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+            }
+
+            HStack(spacing: 5) {
+                ForEach(Self.presets, id: \.self) { minutes in
+                    Chip(title: chipTitle(minutes), selected: !isCustom && store.idleLimitMinutes == minutes) {
+                        customizing = false
+                        store.idleLimitMinutes = minutes
+                    }
+                }
+                Chip(title: "Custom", selected: isCustom) { customizing = true }
+            }
+
+            if isCustom {
+                HStack {
+                    Text("Idle after").font(.system(size: 11.5))
+                    Spacer()
+                    Text(formatLimit(store.idleLimitMinutes))
+                        .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                    // Steps of 15 minutes, from half an hour up to a week.
+                    Stepper("", value: $store.idleLimitMinutes, in: Store.minimumIdleLimit...10080, step: 15)
+                        .labelsHidden()
+                        .controlSize(.small)
+                }
+            }
+
+            if let last = store.lastAutoEnd {
+                Text("Ended \(last.count) idle session\(last.count == 1 ? "" : "s") at \(last.date.formatted(date: .omitted, time: .shortened)). Bring one back with claude --resume.")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(11)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.08)))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
+    }
+
+    private func chipTitle(_ minutes: Int) -> String {
+        minutes < 60 ? "\(minutes)m" : "\(minutes / 60)h"
+    }
+
     private var summary: some View {
         let idle = store.idleSessions
         return HStack(spacing: 8) {
@@ -603,23 +651,39 @@ private struct SessionsView: View {
                 }
                 .buttonStyle(PillButtonStyle(tint: .red, filled: true))
             } else {
-                Text("\(store.sessions.count) open  ·  \(idle.count) idle over \(limitText)")
+                Text("\(store.sessions.count) open  ·  \(idle.count) idle over \(formatLimit(store.idleLimitMinutes))")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Spacer()
                 if !idle.isEmpty {
                     Button("Kill idle") { confirming = true }
                         .buttonStyle(PillButtonStyle(tint: .red))
-                        .help("End every session that has been waiting longer than \(limitText). They can be resumed later.")
+                        .help("End every session that has been waiting longer than \(formatLimit(store.idleLimitMinutes)). They can be resumed later.")
                 }
             }
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 9)
     }
+}
 
-    private var limitText: String {
-        store.idleLimitMinutes >= 60 ? "\(store.idleLimitMinutes / 60) h" : "\(store.idleLimitMinutes) min"
+/// One choice in a row of choices.
+private struct Chip: View {
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11.5, weight: .medium))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(selected ? Color.accentColor.opacity(0.85) : Color.primary.opacity(0.08)))
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 

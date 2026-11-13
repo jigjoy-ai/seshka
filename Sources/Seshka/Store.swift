@@ -26,9 +26,32 @@ final class Store: ObservableObject {
         didSet { UserDefaults.standard.set(protectedPatterns, forKey: Keys.protected) }
     }
 
-    /// A session waiting for input this long counts as idle, and "Kill idle" takes it.
+    /// A session waiting for input this long counts as idle, and "Kill idle" takes it. Never under half an hour.
     @Published var idleLimitMinutes: Int {
-        didSet { UserDefaults.standard.set(idleLimitMinutes, forKey: Keys.idleLimit) }
+        didSet {
+            if idleLimitMinutes < Store.minimumIdleLimit {
+                idleLimitMinutes = Store.minimumIdleLimit
+                return
+            }
+            UserDefaults.standard.set(idleLimitMinutes, forKey: Keys.idleLimit)
+        }
+    }
+    static let minimumIdleLimit = 30
+
+    /// While on, sessions idle past the limit are ended without asking, on every scan. Off unless the user turns it on.
+    @Published var endsIdleSessions: Bool {
+        didSet {
+            UserDefaults.standard.set(endsIdleSessions, forKey: Keys.endsIdle)
+            if endsIdleSessions { refresh() }
+        }
+    }
+
+    /// The last time idle sessions were ended automatically, shown so it is never a mystery where one went.
+    @Published private(set) var lastAutoEnd: AutoEnd?
+
+    struct AutoEnd: Equatable {
+        let count: Int
+        let date: Date
     }
 
     @Published var interval: Int {
@@ -49,6 +72,7 @@ final class Store: ObservableObject {
         static let protected = "protectedPatterns"
         static let interval = "refreshInterval"
         static let idleLimit = "idleLimitMinutes"
+        static let endsIdle = "endsIdleSessions"
     }
 
     init() {
@@ -57,7 +81,8 @@ final class Store: ObservableObject {
         let saved = defaults.integer(forKey: Keys.interval)
         interval = saved > 0 ? saved : 30
         let limit = defaults.integer(forKey: Keys.idleLimit)
-        idleLimitMinutes = limit > 0 ? limit : 60
+        idleLimitMinutes = limit > 0 ? max(limit, Store.minimumIdleLimit) : 120
+        endsIdleSessions = defaults.bool(forKey: Keys.endsIdle)
         startTimer()
         refresh()
     }
@@ -120,6 +145,14 @@ final class Store: ObservableObject {
                 }
                 self.lastScan = Date()
                 self.scanning = false
+                if self.endsIdleSessions {
+                    // Sessions already being ended are not counted again.
+                    let due = self.idleSessions.filter { !self.killing.contains($0.process.pid) }
+                    if !due.isEmpty {
+                        self.lastAutoEnd = AutoEnd(count: due.count, date: Date())
+                        self.killIdleSessions()
+                    }
+                }
                 if self.rescanWhenDone {
                     self.rescanWhenDone = false
                     self.refresh()
@@ -221,6 +254,13 @@ func formatBytes(_ bytes: UInt64) -> String {
     if mb >= 1024 { return String(format: "%.1f GB", mb / 1024) }
     if mb >= 1 { return String(format: "%.0f MB", mb) }
     return bytes == 0 ? "–" : "<1 MB"
+}
+
+/// "30 min", "2 h", "2 h 30 min".
+func formatLimit(_ minutes: Int) -> String {
+    let hours = minutes / 60, rest = minutes % 60
+    if hours == 0 { return "\(rest) min" }
+    return rest == 0 ? "\(hours) h" : "\(hours) h \(rest) min"
 }
 
 func humanAge(_ seconds: Int) -> String {
