@@ -18,7 +18,11 @@ The doll in the menu bar is open while something is left behind, and closed when
 
 ## Install
 
-Requires macOS 14 or later. A signed download is coming to [seshka.dev](https://seshka.dev). Until then, build it:
+**[Download for macOS](https://seshka.dev/download/Seshka.dmg)**, open the disk image and drag Seshka to Applications.
+
+Requires macOS 14 or later, on Apple silicon or Intel. The app is signed and notarized, and keeps itself up to date.
+
+To build it yourself:
 
     scripts/build.sh
     open build/Seshka.app
