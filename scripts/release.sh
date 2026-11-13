@@ -1,26 +1,35 @@
 #!/bin/bash
-# Makes a release: a signed, notarized app as a .dmg (to download) and a .zip (for the updater),
-# plus the update feed. Everything lands in the website checkout, ready to commit and deploy.
+# Makes a release and publishes it: a signed, notarized app as a .dmg (to download) and a .zip (for the
+# updater), plus the update feed, uploaded to the downloads bucket behind CloudFront (deploy/releases.yaml).
+# seshka.dev redirects /download/* and /appcast.xml there.
 #
-# Only someone holding the signing material can run this. Nothing secret lives in this repository:
+# Only someone holding the signing material and AWS access can run this. Nothing secret lives in this repository:
 #
 #   SESHKA_SIGNING_DIR   a folder with the Developer ID certificate and the notary key:
 #                          developer-id.p12, p12-password,
 #                          AuthKey_<id>.p8, notary-key-id, notary-issuer
-#   SESHKA_SITE_DIR      a checkout of the website (jigjoy-ai/seshka-website)
+#   SESHKA_AWS_PROFILE   an AWS CLI profile allowed to write to the downloads bucket
 #
 # The private key that signs updates is in the login keychain of whoever ran Sparkle's generate_keys.
 #
-#   SESHKA_SIGNING_DIR=~/keys/developer-id SESHKA_SITE_DIR=../seshka-website scripts/release.sh
+#   SESHKA_SIGNING_DIR=~/keys/developer-id SESHKA_AWS_PROFILE=my-profile scripts/release.sh
 #
 # Before running: raise CFBundleShortVersionString and CFBundleVersion in Resources/Info.plist.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 : "${SESHKA_SIGNING_DIR:?set SESHKA_SIGNING_DIR to the folder with the signing material}"
-: "${SESHKA_SITE_DIR:?set SESHKA_SITE_DIR to a checkout of the website}"
+: "${SESHKA_AWS_PROFILE:?set SESHKA_AWS_PROFILE to an AWS profile that can write to the downloads bucket}"
 KEYS=$(cd "$SESHKA_SIGNING_DIR" && pwd)
-SITE=$(cd "$SESHKA_SITE_DIR" && pwd)
+STACK=seshka-releases
+REGION=eu-west-1
+output() {  # output <key>   a value the downloads stack exports
+    aws cloudformation describe-stacks --profile "$SESHKA_AWS_PROFILE" --region "$REGION" --stack-name "$STACK" \
+        --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text
+}
+BUCKET=$(output Bucket)
+DOWNLOADS=$(output DownloadsUrl)
+[ -n "$BUCKET" ] && [ -n "$DOWNLOADS" ] || { echo "Could not read the $STACK stack; deploy deploy/releases.yaml first"; exit 1; }
 VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Resources/Info.plist)
 SPARKLE=.build/artifacts/sparkle/Sparkle/bin
 WORK=$(mktemp -d)
@@ -71,9 +80,12 @@ ditto -c -k --keepParent "$APP" "$WORK/Seshka.zip"
 notarize "$WORK/Seshka.zip"
 xcrun stapler staple "$APP"
 
-mkdir -p "$SITE/public/download"
-ZIP="$SITE/public/download/Seshka-$VERSION.zip"
-DMG="$SITE/public/download/Seshka.dmg"
+# dist/updates holds every update archive, because the feed lists all of them.
+UPDATES=dist/updates
+mkdir -p "$UPDATES"
+aws s3 sync "s3://$BUCKET/" "$UPDATES" --profile "$SESHKA_AWS_PROFILE" --exclude "*" --include "Seshka-*.zip" >/dev/null
+ZIP="$UPDATES/Seshka-$VERSION.zip"
+DMG="dist/Seshka.dmg"
 
 # The updater downloads the zip; it holds the stapled app.
 rm -f "$ZIP"
@@ -90,15 +102,22 @@ notarize "$DMG"
 xcrun stapler staple "$DMG"
 
 echo "==> Writing the update feed"
-"$SPARKLE/generate_appcast" "$SITE/public/download" \
-    --download-url-prefix "https://seshka.dev/download/" \
+"$SPARKLE/generate_appcast" "$UPDATES" \
+    --download-url-prefix "$DOWNLOADS/" \
     --link "https://seshka.dev" \
     --maximum-deltas 0 \
-    -o "$SITE/public/appcast.xml"
+    -o "$UPDATES/appcast.xml"
+
+echo "==> Uploading"
+upload() {  # upload <file> <name> <cache-control> [content-type]
+    aws s3 cp "$1" "s3://$BUCKET/$2" --profile "$SESHKA_AWS_PROFILE" --cache-control "$3" ${4:+--content-type "$4"} >/dev/null
+}
+# A version's archive never changes. The disk image and the feed keep their names, so they must not be cached.
+upload "$ZIP" "Seshka-$VERSION.zip" "public, max-age=31536000, immutable"
+upload "$DMG" "Seshka.dmg" "no-cache"
+upload "$UPDATES/appcast.xml" "appcast.xml" "no-cache" "application/xml"
 
 echo
-echo "seshka $VERSION is ready in $SITE/public:"
-echo "  download/Seshka.dmg            the download"
-echo "  download/Seshka-$VERSION.zip   what the updater fetches"
-echo "  appcast.xml                    the update feed"
-echo "Commit and push the website to publish it."
+echo "seshka $VERSION is published:"
+echo "  https://seshka.dev/download/Seshka.dmg   ->  $DOWNLOADS/Seshka.dmg"
+echo "  https://seshka.dev/appcast.xml           ->  $DOWNLOADS/appcast.xml"

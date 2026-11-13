@@ -3,3 +3,4 @@
 build/
 # The launch film is kept on the machine that made it.
 video/
+dist/
