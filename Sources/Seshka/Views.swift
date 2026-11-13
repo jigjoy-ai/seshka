@@ -58,9 +58,9 @@ struct ContentView: View {
             }
             Spacer()
             if let version = updater.availableVersion {
-                Button("Update to \(version)") { updater.check() }
+                Button("Update to \(version)") { updater.applyUpdate() }
                     .buttonStyle(PillButtonStyle(tint: .green))
-                    .help("A new version of seshka is ready")
+                    .help("seshka \(version) is ready. Click to install it and restart.")
             }
             Button {
                 store.refresh()
@@ -809,12 +809,21 @@ private struct AboutView: View {
                 .padding(.top, 6)
 
                 card {
-                    HStack {
-                        Text("Updates").font(.system(size: 12, weight: .medium))
-                        Spacer()
-                        Button("Check for Updates…") { updater.check() }
-                            .buttonStyle(PillButtonStyle(tint: .secondary))
-                            .disabled(!updater.canCheck)
+                    if let ready = updater.availableVersion {
+                        HStack {
+                            Text("Version \(ready) is ready").font(.system(size: 12, weight: .medium))
+                            Spacer()
+                            Button("Install and restart") { updater.applyUpdate() }
+                                .buttonStyle(PillButtonStyle(tint: .green))
+                        }
+                    } else {
+                        HStack {
+                            Text("Updates").font(.system(size: 12, weight: .medium))
+                            Spacer()
+                            Button("Check for Updates…") { updater.check() }
+                                .buttonStyle(PillButtonStyle(tint: .secondary))
+                                .disabled(!updater.canCheck)
+                        }
                     }
                     Toggle(isOn: Binding(get: { updater.checksAutomatically }, set: { updater.checksAutomatically = $0 })) {
                         Text("Check automatically").font(.system(size: 12))
