@@ -30,3 +30,7 @@ and of its own process. seshka reads those from your running processes. A proces
 Claude Code process that started it is gone.
 
 Nothing leaves your Mac.
+
+## License
+
+[MIT](LICENSE). Free and open source.
