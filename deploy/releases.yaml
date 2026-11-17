@@ -13,9 +13,10 @@ Resources:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
   # Access logs of the CDN, to count downloads (scripts/downloads.sh). They hold visitor IP addresses,
-  # so they are private and deleted after 30 days.
+  # so they are private and deleted after 30 days. Each new log goes to Counter, below.
   Logs:
     Type: AWS::S3::Bucket
+    DependsOn: CounterMayBeCalled
     Properties:
       BucketName: !Sub seshka-releases-logs-${AWS::AccountId}
       PublicAccessBlockConfiguration:
@@ -27,9 +28,120 @@ Resources:
       OwnershipControls:
         Rules:
           - ObjectOwnership: BucketOwnerPreferred
+      # Only the logs expire. Counter keeps its running total next to them, under state/, and that has to stay.
       LifecycleConfiguration:
         Rules:
-          - { Id: expire-logs, Status: Enabled, ExpirationInDays: 30 }
+          - { Id: expire-logs, Status: Enabled, Prefix: cdn/, ExpirationInDays: 30 }
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt Counter.Arn
+            Filter: { S3Key: { Rules: [{ Name: prefix, Value: cdn/ }] } }
+  # Keeps the number of downloads the website shows. It reads each log as CloudFront delivers it, adds the
+  # finished downloads of the disk image to a running total, and publishes the total as stats.json on the CDN.
+  # The total outlives the logs. Only the number is public: no addresses, no times.
+  # One copy runs at a time, so two logs arriving together cannot overwrite each other's total.
+  Counter:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: seshka-downloads
+      Runtime: python3.13
+      Handler: index.handler
+      Role: !GetAtt CounterRole.Arn
+      Timeout: 120
+      MemorySize: 256
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          LOGS: !Sub seshka-releases-logs-${AWS::AccountId}
+          RELEASES: !Ref Bucket
+      Code:
+        ZipFile: |
+          import boto3, gzip, json, os, urllib.parse
+
+          s3 = boto3.client("s3")
+          LOGS, RELEASES, STATE = os.environ["LOGS"], os.environ["RELEASES"], "state/downloads.json"
+
+          def finished(key):
+              # The same rule as scripts/downloads.sh: a GET of the disk image that sent most of the file.
+              # Fields: 3 bytes sent, 5 method, 7 path, 8 status.
+              text = gzip.decompress(s3.get_object(Bucket=LOGS, Key=key)["Body"].read()).decode("utf-8", "replace")
+              count = 0
+              for line in text.splitlines():
+                  f = line.split("\t")
+                  if line.startswith("#") or len(f) < 9:
+                      continue
+                  if f[5] == "GET" and f[7] == "/Seshka.dmg" and f[8] == "200" and f[3].isdigit() and int(f[3]) >= 1000000:
+                      count += 1
+              return count
+
+          def handler(event, context):
+              try:
+                  state = json.loads(s3.get_object(Bucket=LOGS, Key=STATE)["Body"].read())
+                  first = False
+              except s3.exceptions.NoSuchKey:
+                  state, first = {"downloads": 0, "seen": []}, True
+              if "Records" in event:
+                  keys = [urllib.parse.unquote_plus(r["s3"]["object"]["key"]) for r in event["Records"]]
+              elif first:
+                  # Run by hand once, after the first deploy: count the logs that are already there.
+                  pages = s3.get_paginator("list_objects_v2").paginate(Bucket=LOGS, Prefix="cdn/")
+                  keys = [o["Key"] for page in pages for o in page.get("Contents", [])]
+              else:
+                  keys = []
+              seen = set(state["seen"])
+              for key in keys:
+                  # S3 can announce the same log twice.
+                  if key.endswith(".gz") and key not in seen:
+                      state["downloads"] += finished(key)
+                      state["seen"].append(key)
+                      seen.add(key)
+              state["seen"] = state["seen"][-5000:]
+              s3.put_object(Bucket=LOGS, Key=STATE, Body=json.dumps(state), ContentType="application/json")
+              s3.put_object(Bucket=RELEASES, Key="stats.json", Body=json.dumps({"downloads": state["downloads"]}),
+                            ContentType="application/json", CacheControl="public, max-age=30")
+              return state["downloads"]
+  CounterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - { Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: sts:AssumeRole }
+      Policies:
+        - PolicyName: count-downloads
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt CounterLogs.Arn
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub arn:aws:s3:::seshka-releases-logs-${AWS::AccountId}
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub arn:aws:s3:::seshka-releases-logs-${AWS::AccountId}/cdn/*
+                  - !Sub arn:aws:s3:::seshka-releases-logs-${AWS::AccountId}/state/*
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource:
+                  - !Sub arn:aws:s3:::seshka-releases-logs-${AWS::AccountId}/state/*
+                  - !Sub ${Bucket.Arn}/stats.json
+  CounterLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/seshka-downloads
+      RetentionInDays: 14
+  CounterMayBeCalled:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Counter
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub arn:aws:s3:::seshka-releases-logs-${AWS::AccountId}
   OriginAccessControl:
     Type: AWS::CloudFront::OriginAccessControl
     Properties:
