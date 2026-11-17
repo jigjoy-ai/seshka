@@ -25,13 +25,16 @@ if ! ls "$DIR"/*.gz >/dev/null 2>&1; then
     exit 0
 fi
 
-# Fields: 1 date, 5 address, 8 path, 9 status.
+# Fields: 1 date, 4 bytes sent, 5 address, 6 method, 8 path, 9 status, 11 user agent.
+# A download counts once most of the file went out: browsers probe and abandon, and those still log as 200.
+# Only the app itself (Sparkle) counts as an install checking the feed, not a person or a script reading it.
 gzip -dc "$DIR"/*.gz | awk -F'\t' '
     /^#/ { next }
     { days[$1] = 1 }
-    $8 == "/Seshka.dmg" && $9 == 200 { downloads[$1]++; if (!seen["d", $1, $5]++) people[$1]++ }
-    $8 ~ /^\/Seshka-.*\.zip$/ && $9 == 200 { updates[$1]++ }
-    $8 == "/appcast.xml" && ($9 == 200 || $9 == 304) { if (!seen["a", $1, $5]++) installs[$1]++ }
+    $6 != "GET" { next }
+    $8 == "/Seshka.dmg" && $9 == 200 && $4 >= 1000000 { downloads[$1]++; if (!seen["d", $1, $5]++) people[$1]++ }
+    $8 ~ /^\/Seshka-.*\.zip$/ && $9 == 200 && $4 >= 1000000 { updates[$1]++ }
+    $8 == "/appcast.xml" && ($9 == 200 || $9 == 304) && $11 ~ /Sparkle/ { if (!seen["a", $1, $5]++) installs[$1]++ }
     END {
         printf "%-12s %9s %7s %8s %9s\n", "day", "downloads", "people", "updates", "installs"
         for (day in days) {
