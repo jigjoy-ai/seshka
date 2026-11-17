@@ -103,7 +103,8 @@ enum CLI {
             print("  \(group.project) · \(group.shortID) · \(group.title ?? "-")")
             for p in group.procs {
                 let ports = p.ports.map { ":" + $0 }.joined(separator: " ")
-                print("    \(p.pid)\t\(humanAge(p.age))\t\(formatBytes(p.memory))\t\(ports)\t\(p.shortCommand.prefix(60))")
+                let helpers = p.helpers.isEmpty ? "" : " (+\(p.helpers.count) helpers)"
+                print("    \(p.pid)\t\(humanAge(p.age))\t\(formatBytes(p.memory))\t\(ports)\t\(p.shortCommand.prefix(60))\(helpers)")
             }
         }
     }

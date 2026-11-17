@@ -11,6 +11,7 @@ seshka is a macOS menu bar app that finds them and kills them.
 
 - Finds every process started by a Claude Code session that has since closed.
 - Groups them by session, with their ports, memory and age.
+- Catches browsers left open by Playwright and other automation, each as one row.
 - Kills one process, one session's worth, or all of them.
 - Tells you how much memory they were holding.
 - Shows every open session too: whether it is working or idle, for how long, and what it holds.
@@ -34,6 +35,10 @@ To build it yourself:
 Claude Code sets `CLAUDECODE=1` in the environment of everything it starts, along with the ID of the session
 and of its own process. seshka reads those from your running processes. A process is a leftover once the
 Claude Code process that started it is gone.
+
+Some apps keep their environment unreadable, Chrome among them. So seshka also counts whatever a marked
+process started: a browser opened by Playwright shows up next to the Playwright process that opened it.
+An app's helper processes are folded into one row with the app, and go when you kill it.
 
 Nothing leaves your Mac.
 

@@ -16,19 +16,47 @@ struct Proc: Identifiable, Hashable {
     /// Real memory use in bytes, the same number Activity Monitor shows as "Memory".
     var memory: UInt64 = 0
 
+    /// Path of the executable. Unlike the command line it is unambiguous when the path has spaces.
+    var path: String = ""
+    /// Helper processes of the same app, folded into this row. Their memory and ports are counted here.
+    var helpers: [Helper] = []
+
+    struct Helper: Hashable {
+        let pid: Int32
+        let command: String
+    }
+
     var id: Int32 { pid }
 
+    /// The arguments, when the command line starts with the executable's path.
+    private var arguments: Substring? {
+        guard !path.isEmpty, command.hasPrefix(path) else { return nil }
+        let rest = command.dropFirst(path.count)
+        return rest.isEmpty || rest.hasPrefix(" ") ? rest : nil
+    }
+
     var executable: String {
-        let first = command.split(separator: " ", maxSplits: 1).first.map(String.init) ?? command
+        let first = arguments != nil ? path : command.split(separator: " ", maxSplits: 1).first.map(String.init) ?? command
         let name = (first as NSString).lastPathComponent
         return name == "Python" ? "python" : name
     }
 
     var shortCommand: String {
-        let parts = command.split(separator: " ", maxSplits: 1).map(String.init)
-        let text = parts.count > 1 ? executable + " " + parts[1] : executable
+        let text: String
+        if let arguments {
+            text = executable + arguments
+        } else {
+            let parts = command.split(separator: " ", maxSplits: 1).map(String.init)
+            text = parts.count > 1 ? executable + " " + parts[1] : executable
+        }
         // ps prints newlines inside arguments as the octal escape \012
         return text.replacingOccurrences(of: "\\012", with: " ")
+    }
+
+    /// The app bundle this process is the main executable of, e.g. "/Applications/Google Chrome.app/".
+    fileprivate var bundleRoot: String? {
+        guard let marker = path.range(of: ".app/Contents/MacOS/") else { return nil }
+        return String(path[..<marker.lowerBound]) + ".app/"
     }
 }
 
@@ -102,17 +130,21 @@ enum Scanner {
         let me = getpid()
 
         var comm: [Int32: String] = [:]
+        var paths: [Int32: String] = [:]
         var parent: [Int32: Int32] = [:]
         for line in Shell.run("/bin/ps", ["-A", "-o", "pid=,ppid=,comm="]).split(separator: "\n") {
             guard let f = fields(line, 3), let pid = Int32(f[0]), let ppid = Int32(f[1]) else { continue }
             comm[pid] = (f[2] as NSString).lastPathComponent
+            paths[pid] = f[2]
             parent[pid] = ppid
         }
 
         var commands: [Int32: String] = [:]
-        for line in Shell.run("/bin/ps", ["ww", "-U", uid, "-o", "pid=,command="]).split(separator: "\n") {
-            guard let f = fields(line, 2), let pid = Int32(f[0]) else { continue }
-            commands[pid] = f[1]
+        var ages: [Int32: Int] = [:]
+        for line in Shell.run("/bin/ps", ["ww", "-U", uid, "-o", "pid=,etime=,command="]).split(separator: "\n") {
+            guard let f = fields(line, 3), let pid = Int32(f[0]) else { continue }
+            ages[pid] = seconds(fromElapsed: f[1])
+            commands[pid] = f[2]
         }
 
         func isClaude(_ pid: Int32) -> Bool { comm[pid] == "claude" }
@@ -151,19 +183,71 @@ enum Scanner {
                 age: seconds(fromElapsed: f[2]),
                 sessionID: session,
                 sessionAlive: alive,
-                command: commands[pid] ?? "?"
+                command: commands[pid] ?? "?",
+                path: paths[pid] ?? ""
             ))
         }
         guard !procs.isEmpty else { return [] }
 
-        for i in procs.indices { procs[i].memory = Footprint.bytes(of: procs[i].pid) }
+        // Some apps keep their environment unreadable (Chrome does), so the marker cannot be seen on them.
+        // A process started by a marked one still belongs to that session, with or without a marker.
+        var marked: [Int32: Int] = [:]
+        for (i, p) in procs.enumerated() { marked[p.pid] = i }
+        for (pid, command) in commands where marked[pid] == nil && pid != me && !isClaude(pid) {
+            var owner: Int?
+            var at = pid
+            var seen = Set<Int32>()
+            while at > 1, let up = parent[at], seen.insert(at).inserted {
+                // Past seshka or another Claude Code process it is no longer this session's doing.
+                if up == me || isClaude(up) { break }
+                if let hit = marked[up] { owner = hit; break }
+                at = up
+            }
+            guard let owner else { continue }
+            procs.append(Proc(
+                pid: pid,
+                ppid: parent[pid] ?? 0,
+                age: ages[pid] ?? 0,
+                sessionID: procs[owner].sessionID,
+                sessionAlive: procs[owner].sessionAlive,
+                command: command,
+                path: paths[pid] ?? ""
+            ))
+        }
 
+        // An app's helper processes (a browser has one per tab) are part of the app: one row, not twenty.
         var index: [Int32: Int] = [:]
         for (i, p) in procs.enumerated() { index[p.pid] = i }
-        let pidList = procs.map { String($0.pid) }.joined(separator: ",")
+        var folded = Set<Int>()
+        for i in procs.indices {
+            var app: Int?
+            var at = i
+            var seen = Set<Int>()
+            while seen.insert(at).inserted, let up = index[procs[at].ppid],
+                  let root = procs[up].bundleRoot, procs[i].path.hasPrefix(root) {
+                app = up
+                at = up
+            }
+            guard let app else { continue }
+            procs[app].helpers.append(Proc.Helper(pid: procs[i].pid, command: procs[i].command))
+            folded.insert(i)
+        }
+        procs = procs.indices.filter { !folded.contains($0) }.map { procs[$0] }
+
+        index = [:]
+        for (i, p) in procs.enumerated() {
+            index[p.pid] = i
+            procs[i].memory = Footprint.bytes(of: p.pid)
+            for helper in p.helpers {
+                index[helper.pid] = i
+                procs[i].memory += Footprint.bytes(of: helper.pid)
+            }
+        }
+        let pidList = procs.flatMap { [$0.pid] + $0.helpers.map(\.pid) }.map(String.init).joined(separator: ",")
 
         var current: Int?
-        for line in Shell.run("/usr/sbin/lsof", ["-a", "-d", "cwd", "-p", pidList, "-Fpn"]).split(separator: "\n") {
+        let mains = procs.map { String($0.pid) }.joined(separator: ",")
+        for line in Shell.run("/usr/sbin/lsof", ["-a", "-d", "cwd", "-p", mains, "-Fpn"]).split(separator: "\n") {
             if line.hasPrefix("p") {
                 current = Int32(line.dropFirst()).flatMap { index[$0] }
             } else if line.hasPrefix("n"), let i = current {
@@ -278,16 +362,22 @@ enum Killer {
 
     /// PIDs get reused, so make sure the PID still belongs to the process the user saw.
     static func stillSame(_ proc: Proc) -> Bool {
-        let now = Shell.run("/bin/ps", ["ww", "-p", String(proc.pid), "-o", "command="])
+        stillRuns(proc.pid, as: proc.command)
+    }
+
+    private static func stillRuns(_ pid: Int32, as command: String) -> Bool {
+        let now = Shell.run("/bin/ps", ["ww", "-p", String(pid), "-o", "command="])
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return !now.isEmpty && now == proc.command
+        return !now.isEmpty && now == command
     }
 
     /// Asks each process to exit, then force-kills whatever ignored the request.
     /// Returns the PIDs that needed the force-kill.
     @discardableResult
     static func terminate(_ procs: [Proc], grace: TimeInterval = 2.0) -> [Int32] {
-        let targets = procs.filter(stillSame).map(\.pid)
+        let same = procs.filter(stillSame)
+        defer { sweepHelpers(of: same) }
+        let targets = same.map(\.pid)
         for pid in targets { kill(pid, SIGTERM) }
 
         let deadline = Date().addingTimeInterval(grace)
@@ -303,6 +393,19 @@ enum Killer {
             Thread.sleep(forTimeInterval: 0.05)
         }
         return stubborn
+    }
+
+    /// An app's helpers exit on their own once the app is gone. Any that did not are forced out.
+    private static func sweepHelpers(of procs: [Proc]) {
+        let helpers = procs.filter { !isRunning($0.pid) }.flatMap(\.helpers)
+        guard !helpers.isEmpty else { return }
+        let settled = Date().addingTimeInterval(1.0)
+        while Date() < settled, helpers.contains(where: { isRunning($0.pid) }) {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        for helper in helpers where isRunning(helper.pid) && stillRuns(helper.pid, as: helper.command) {
+            kill(helper.pid, SIGKILL)
+        }
     }
 }
 

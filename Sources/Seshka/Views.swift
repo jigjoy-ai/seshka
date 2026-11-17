@@ -306,6 +306,14 @@ private struct ProcRow: View {
         VStack(alignment: .leading, spacing: 6) {
             DetailLine(label: "PID", value: "\(proc.pid)   parent \(proc.ppid)   running \(humanAge(proc.age))", copyValue: "\(proc.pid)")
             DetailLine(label: "Memory", value: formatBytes(proc.memory), copyValue: formatBytes(proc.memory))
+            if !proc.helpers.isEmpty {
+                let count = proc.helpers.count
+                DetailLine(
+                    label: "Helpers",
+                    value: "\(count) helper process\(count == 1 ? "" : "es"), counted in the memory and killed with it",
+                    copyValue: proc.helpers.map { String($0.pid) }.joined(separator: " ")
+                )
+            }
             if !proc.ports.isEmpty {
                 DetailLine(label: "Ports", value: proc.ports.joined(separator: ", "), copyValue: proc.ports.joined(separator: " "))
             }
