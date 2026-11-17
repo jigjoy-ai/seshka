@@ -12,6 +12,24 @@ Resources:
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+  # Access logs of the CDN, to count downloads (scripts/downloads.sh). They hold visitor IP addresses,
+  # so they are private and deleted after 30 days.
+  Logs:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub seshka-releases-logs-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true }
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      # CloudFront delivers its logs through a bucket ACL, so ACLs have to stay enabled on this bucket.
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      LifecycleConfiguration:
+        Rules:
+          - { Id: expire-logs, Status: Enabled, ExpirationInDays: 30 }
   OriginAccessControl:
     Type: AWS::CloudFront::OriginAccessControl
     Properties:
@@ -28,6 +46,10 @@ Resources:
         Comment: seshka downloads
         HttpVersion: http2and3
         PriceClass: PriceClass_100
+        Logging:
+          Bucket: !GetAtt Logs.DomainName
+          Prefix: cdn/
+          IncludeCookies: false
         Origins:
           - Id: releases
             DomainName: !GetAtt Bucket.RegionalDomainName
@@ -58,3 +80,4 @@ Outputs:
   Bucket: { Value: !Ref Bucket }
   DownloadsUrl: { Value: !Sub "https://${Distribution.DomainName}" }
   DistributionId: { Value: !Ref Distribution }
+  LogsBucket: { Value: !Ref Logs }
