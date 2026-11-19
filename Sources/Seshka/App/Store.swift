@@ -61,6 +61,25 @@ final class Store: ObservableObject {
         }
     }
 
+    /// What could be removed from disk. Read when the Disk tab asks, not on every scan: measuring
+    /// folders takes a while.
+    @Published private(set) var disk: [DiskItem] = []
+    @Published private(set) var diskScanning = false
+    @Published private(set) var diskRead: Date?
+    /// Items being removed right now.
+    @Published private(set) var removing: Set<String> = []
+    /// What the removals of this run released.
+    @Published private(set) var diskFreed: UInt64 = 0
+    /// Why the last removal failed, with the item it was about.
+    @Published var diskFailure: DiskFailure?
+    private var rereadDiskWhenDone = false
+    private var removedDuringScan: Set<String> = []
+
+    struct DiskFailure: Equatable {
+        let id: String
+        let reason: String
+    }
+
     /// In live sessions, hide processes younger than this; those are ordinary tool calls.
     private let minLiveAge = 60
     private var timer: Timer?
@@ -73,6 +92,7 @@ final class Store: ObservableObject {
         static let interval = "refreshInterval"
         static let idleLimit = "idleLimitMinutes"
         static let endsIdle = "endsIdleSessions"
+        static let disk = "diskItems"
     }
 
     init() {
@@ -83,6 +103,19 @@ final class Store: ObservableObject {
         let limit = defaults.integer(forKey: Keys.idleLimit)
         idleLimitMinutes = limit > 0 ? max(limit, Store.minimumIdleLimit) : 120
         endsIdleSessions = defaults.bool(forKey: Keys.endsIdle)
+        // The list as it was last measured, kept between runs: measuring takes the better part of a
+        // minute, and the Disk tab should have its rows and numbers the moment it opens.
+        if let saved = defaults.data(forKey: Keys.disk), let items = try? JSONDecoder().decode([DiskItem].self, from: saved) {
+            disk = items
+        }
+        if disk.isEmpty {
+            // Never measured on this Mac. Start soon after launch, so the Disk tab has its numbers by
+            // the time it is first opened. After that it measures only when the tab is opened.
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(15))
+                if self?.diskRead == nil { self?.refreshDisk() }
+            }
+        }
         startTimer()
         refresh()
     }
@@ -224,6 +257,113 @@ final class Store: ObservableObject {
         kill(idleSessions.flatMap { [$0.process] + $0.procs.filter { !isProtected($0) } })
     }
 
+    // MARK: - Disk
+
+    /// Everything on the list that may be removed, largest first within its kind.
+    func disk(_ kind: DiskItem.Kind) -> [DiskItem] {
+        disk.filter { $0.kind == kind && (kind != .cache || ($0.bytes ?? 0) >= Disk.smallestCache) }
+    }
+
+    /// How much the items that may be removed take together.
+    var diskRemovable: UInt64 {
+        DiskItem.Kind.allCases.flatMap(disk).filter { if case .busy = $0.state { false } else { true } }
+            .reduce(0) { $0 + ($1.bytes ?? 0) }
+    }
+
+    func refreshDisk() {
+        guard !diskScanning else {
+            rereadDiskWhenDone = true
+            return
+        }
+        diskScanning = true
+        removedDuringScan = []
+        Task.detached(priority: .utility) {
+            let context = Disk.context()
+            var items = Disk.worktrees(context) + Disk.cachesFound()
+            // Until a row is measured again, it shows what it measured last time.
+            let last = await self.disk
+            let remembered = Dictionary(last.map { ($0.id, $0.bytes) }, uniquingKeysWith: { first, _ in first })
+            for i in items.indices { items[i].bytes = remembered[items[i].id] ?? nil }
+            var scratch = last.filter { $0.kind == .scratch }
+            await self.show(items + scratch)
+
+            // Several folders at a time: one after another, the last row waited minutes for its number.
+            enum Measured {
+                case scratch([DiskItem])
+                case size(String, UInt64)
+            }
+            await withTaskGroup(of: Measured.self) { group in
+                var next = 0
+                func startNext(_ group: inout TaskGroup<Measured>) {
+                    guard next < items.count else { return }
+                    let item = items[next]
+                    next += 1
+                    group.addTask { .size(item.id, Disk.size(of: item.paths)) }
+                }
+                group.addTask { .scratch(Disk.scratch(context)) }
+                for _ in 0..<4 { startNext(&group) }
+                for await result in group {
+                    switch result {
+                    case .scratch(let found):
+                        scratch = found
+                    case .size(let id, let bytes):
+                        if let i = items.firstIndex(where: { $0.id == id }) { items[i].bytes = bytes }
+                        startNext(&group)
+                    }
+                    await self.show(items + scratch)
+                }
+            }
+            await MainActor.run {
+                self.diskScanning = false
+                self.diskRead = Date()
+                UserDefaults.standard.set(try? JSONEncoder().encode(self.disk), forKey: Keys.disk)
+                if self.rereadDiskWhenDone {
+                    self.rereadDiskWhenDone = false
+                    self.refreshDisk()
+                }
+            }
+        }
+    }
+
+    private func show(_ items: [DiskItem]) {
+        // Worktrees and scratch files by size; caches too, once they have one.
+        let sorted = items.enumerated().sorted { a, b in
+            if a.element.kind != b.element.kind { return a.element.kind.rawValue < b.element.kind.rawValue }
+            let x = a.element.bytes ?? 0, y = b.element.bytes ?? 0
+            return x != y ? x > y : a.offset < b.offset
+        }.map(\.element)
+        // A scan that started before a removal still has the removed item on its list.
+        withAnimation(Store.listAnimation) { disk = sorted.filter { !removedDuringScan.contains($0.id) } }
+    }
+
+    func remove(_ item: DiskItem) {
+        guard !removing.contains(item.id) else { return }
+        removing.insert(item.id)
+        diskFailure = nil
+        Task.detached(priority: .userInitiated) {
+            let failure = Disk.remove(item, Disk.context())
+            let left = Disk.size(of: item.paths)
+            await MainActor.run {
+                self.removing.remove(item.id)
+                if let failure {
+                    self.diskFailure = DiskFailure(id: item.id, reason: failure)
+                }
+                // A worktree that went to the Trash still takes its room until the Trash is emptied.
+                let freed = (item.bytes ?? 0) > left ? (item.bytes ?? 0) - left : 0
+                if item.state != .uncommitted { self.diskFreed += freed }
+                withAnimation(Store.listAnimation) {
+                    if left == 0 {
+                        self.removedDuringScan.insert(item.id)
+                        self.disk.removeAll { $0.id == item.id }
+                    } else if let i = self.disk.firstIndex(where: { $0.id == item.id }) {
+                        self.disk[i].bytes = left
+                    }
+                }
+                self.refresh()
+            }
+        }
+    }
+
     // MARK: - Launch at login
 
     var launchesAtLogin: Bool { SMAppService.mainApp.status == .enabled }
@@ -242,30 +382,4 @@ final class Store: ObservableObject {
             return error.localizedDescription
         }
     }
-}
-
-func copyToClipboard(_ text: String) {
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(text, forType: .string)
-}
-
-func formatBytes(_ bytes: UInt64) -> String {
-    let mb = Double(bytes) / 1_048_576
-    if mb >= 1024 { return String(format: "%.1f GB", mb / 1024) }
-    if mb >= 1 { return String(format: "%.0f MB", mb) }
-    return bytes == 0 ? "–" : "<1 MB"
-}
-
-/// "30 min", "2 h", "2 h 30 min".
-func formatLimit(_ minutes: Int) -> String {
-    let hours = minutes / 60, rest = minutes % 60
-    if hours == 0 { return "\(rest) min" }
-    return rest == 0 ? "\(hours) h" : "\(hours) h \(rest) min"
-}
-
-func humanAge(_ seconds: Int) -> String {
-    if seconds >= 86400 { return "\(seconds / 86400)d" }
-    if seconds >= 3600 { return "\(seconds / 3600)h" }
-    if seconds >= 60 { return "\(seconds / 60)m" }
-    return "\(seconds)s"
 }

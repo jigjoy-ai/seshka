@@ -7,11 +7,33 @@ final class Updater: NSObject, ObservableObject, SPUUpdaterDelegate, SPUStandard
     @Published private(set) var canCheck = false
     /// The version that is waiting, once an update has been found or downloaded. A menu bar app has no
     /// window to put an alert on, so the popover shows a button instead of stealing focus.
-    @Published private(set) var availableVersion: String?
+    @Published private(set) var availableVersion: String? {
+        didSet {
+            guard availableVersion != oldValue, announces else { return }
+            if let availableVersion {
+                notice.announce(availableVersion)
+            } else {
+                notice.withdraw()
+            }
+        }
+    }
 
     private var controller: SPUStandardUpdaterController!
     /// Installs the downloaded update and restarts seshka. Set once Sparkle has an update ready.
     private var installNow: (() -> Void)?
+    /// The notification macOS shows when an update is ready.
+    private lazy var notice = UpdateNotice(
+        restart: { [weak self] in self?.applyUpdate() },
+        open: { Task { @MainActor in Welcome.menuBarButton?.performClick(nil) } }
+    )
+
+    /// Off while the app only draws itself into files: nothing should pop up on screen then.
+    var announces = true
+
+    /// For trying the "update is ready" banner and notification without publishing an update.
+    func pretend(version: String?) {
+        availableVersion = version
+    }
 
     override init() {
         super.init()

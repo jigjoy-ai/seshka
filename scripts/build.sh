@@ -16,7 +16,8 @@ else
     PRODUCTS=.build/release
 fi
 
-APP="build/Seshka.app"
+# APP=<path> builds it somewhere else, for trying a change next to a copy that is running.
+APP="${APP:-build/Seshka.app}"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$PRODUCTS/Seshka" "$APP/Contents/MacOS/Seshka"

@@ -1,60 +1,33 @@
-import AppKit
-import SwiftUI
-
-@main
-struct SeshkaApp: App {
-    @StateObject private var store: Store
-    @StateObject private var updater: Updater
-
-    init() {
-        // Command-line mode, used for testing the scan and kill logic without the UI:
-        //   Seshka --list         print what the menu would show
-        //   Seshka --kill <pid>   run the same kill routine the buttons use
-        let args = CommandLine.arguments
-        //   Seshka --kill-session <pid>   end an open session the way the Sessions tab does
-        if args.count >= 2, args[1] == "--list" || args[1] == "--kill" || args[1] == "--kill-session" {
-            CLI.run(Array(args.dropFirst()))
-            exit(0)
-        }
-        //   Seshka --render-logo <file.png>   draw the animated logo at six stages, for checking it
-        if args.count == 3, args[1] == "--render-logo" {
-            let strip = HStack(spacing: 12) {
-                ForEach([0.0, 0.05, 0.12, 0.25, 0.6, 1.0], id: \.self) { stage in
-                    Matryoshka(openness: stage).frame(width: 200, height: 200)
-                }
-            }
-            .padding(12)
-            .background(Color(red: 1, green: 0.91, blue: 0.78))
-            let renderer = ImageRenderer(content: strip)
-            if let image = renderer.nsImage, let tiff = image.tiffRepresentation,
-               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
-                try? png.write(to: URL(fileURLWithPath: args[2]))
-            }
-            exit(0)
-        }
-        _store = StateObject(wrappedValue: Store())
-        _updater = StateObject(wrappedValue: Updater())
-        // Menu bar only: no Dock icon even when run outside an app bundle.
-        NSApplication.shared.setActivationPolicy(.accessory)
-    }
-
-    var body: some Scene {
-        MenuBarExtra {
-            ContentView()
-                .environmentObject(store)
-                .environmentObject(updater)
-        } label: {
-            Image(nsImage: store.orphanCount > 0 ? Icon.menuBarOpen : Icon.menuBarClosed)
-            if store.orphanCount > 0 {
-                Text("\(store.orphanCount)")
-            }
-        }
-        .menuBarExtraStyle(.window)
-    }
-}
+import Foundation
 
 enum CLI {
     static func run(_ args: [String]) {
+        if args[0] == "--disk" {
+            let context = Disk.context()
+            var items = Disk.worktrees(context) + Disk.cachesFound()
+            for i in items.indices {
+                items[i].bytes = Disk.size(of: items[i].paths)
+            }
+            for item in items + Disk.scratch(context) where item.kind != .cache || (item.bytes ?? 0) >= Disk.smallestCache {
+                let state: String
+                switch item.state {
+                case .removable: state = "removable"
+                case .uncommitted: state = "uncommitted, to the Trash"
+                case .busy(let reason): state = "in use: \(reason)"
+                }
+                print("\(item.kind)\t\(formatBytes(item.bytes ?? 0))\t\(item.title)\t\(item.detail)\t\(state)\t\(item.id)")
+            }
+            return
+        }
+        if args[0] == "--remove" {
+            let context = Disk.context()
+            guard args.count == 2, let item = (Disk.worktrees(context) + Disk.scratch(context)).first(where: { $0.id == args[1] }) else {
+                print("not a worktree or scratch item of --disk: \(args.dropFirst().joined(separator: " "))")
+                exit(1)
+            }
+            print(Disk.remove(item, context).map { "not removed: \($0)" } ?? "removed \(item.title)")
+            return
+        }
         let procs = Scanner.scan()
         switch args[0] {
         case "--list":
@@ -100,7 +73,8 @@ enum CLI {
 
     private static func dump(_ groups: [SessionGroup]) {
         for group in groups {
-            print("  \(group.project) · \(group.shortID) · \(group.title ?? "-")")
+            let place = group.worktree.map { " · worktree \($0.label)\($0.missing ? " (folder gone)" : "")" } ?? ""
+            print("  \(group.project) · \(group.shortID) · \(group.title ?? "-")\(place)")
             for p in group.procs {
                 let ports = p.ports.map { ":" + $0 }.joined(separator: " ")
                 let helpers = p.helpers.isEmpty ? "" : " (+\(p.helpers.count) helpers)"

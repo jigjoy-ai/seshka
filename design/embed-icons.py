@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Writes Sources/Seshka/Icon.swift from the SVG drawings in design/."""
+"""Writes Sources/Seshka/Views/Icon.swift from the SVG drawings in design/."""
 import os
 
 here = os.path.dirname(os.path.abspath(__file__))
@@ -40,5 +40,5 @@ enum Icon {{
     static let menuBarOpen = menuBar(open: true)
 }}
 '''
-with open(os.path.join(here, "..", "Sources", "Seshka", "Icon.swift"), "w") as f:
+with open(os.path.join(here, "..", "Sources", "Seshka", "Views", "Icon.swift"), "w") as f:
     f.write(source)
