@@ -97,6 +97,7 @@ final class Store: ObservableObject {
 
     init() {
         let defaults = UserDefaults.standard
+        CommandWatch.shared.keeps = true
         protectedPatterns = defaults.stringArray(forKey: Keys.protected) ?? ["limactl"]
         let saved = defaults.integer(forKey: Keys.interval)
         interval = saved > 0 ? saved : 30

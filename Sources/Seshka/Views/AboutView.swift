@@ -67,7 +67,7 @@ struct AboutView: View {
                         Button("Show the tour") { Welcome.show(store: store) }
                             .buttonStyle(PillButtonStyle(tint: .secondary))
                     }
-                    Text("seshka finds everything Claude Code started by looking for CLAUDECODE=1 in each process's environment. Where macOS hides the environment, it goes by the file the process still writes its output to, and by what the process started. A process counts as leftover once the Claude Code process that started it is gone. Nothing leaves your Mac.")
+                    Text("seshka finds everything Claude Code started by looking for CLAUDECODE=1 in each process's environment. Where macOS hides the environment, it goes by the file the process still writes its output to, by what the process started, and by the command it was seen starting with. A process counts as leftover once the Claude Code process that started it is gone. Nothing leaves your Mac.")
                         .font(.system(size: 10.5))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

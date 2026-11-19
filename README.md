@@ -47,8 +47,12 @@ macOS hides the environment of its own programs too (`/bin/bash`, `/usr/bin/ssh`
 seshka goes by two other traces. Claude Code sends each command's output to a file in a folder named after the
 session, so a process still writing there says whose it is. And the marker is handed down from parent to child,
 so a parent whose child shows it had it too: the script that keeps restarting a server is listed with the server.
-A process that hides its environment, sends its output elsewhere and has lost its parent cannot be told from any
-other, and is not listed.
+
+The last trace is the process group. Claude Code starts every command in a group of its own, and whatever the
+command starts stays in it, even with no parent, no marker and its output sent elsewhere. seshka asks macOS to
+say when an open session starts a command, notes the group then, and knows the process later. This only works
+for commands started while seshka is running, and not for a program that leaves its group on purpose, as
+`ssh -f` and other daemons do. Those cannot be told from any other process, and are not listed.
 
 On disk, nothing is removed without a click, and nothing that is in use is offered: not a worktree a session or
 a process runs in, not the scratch files of a session that is open or wrote to them within the hour. A worktree

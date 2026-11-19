@@ -28,9 +28,14 @@ enum CLI {
             print(Disk.remove(item, context).map { "not removed: \($0)" } ?? "removed \(item.title)")
             return
         }
+        if args[0] == "--list-after" {
+            // The first scan starts the watch on open sessions. What they start while this waits is remembered.
+            _ = Scanner.scan()
+            Thread.sleep(forTimeInterval: args.count == 2 ? Double(args[1]) ?? 10 : 10)
+        }
         let procs = Scanner.scan()
         switch args[0] {
-        case "--list":
+        case "--list", "--list-after":
             let orphans = Scanner.group(procs.filter { !$0.sessionAlive })
             let live = Scanner.group(procs.filter { $0.sessionAlive })
             print("orphans: \(orphans.reduce(0) { $0 + $1.procs.count }), \(formatBytes(orphans.reduce(0) { $0 + $1.memory }))")

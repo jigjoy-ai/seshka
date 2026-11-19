@@ -115,17 +115,42 @@ enum Scanner {
         //      whose line of parents ends at an open Claude Code process.
         //   3. The marker is handed down from parent to child. So a parent that hides its environment had
         //      it too, if its child shows it: the script that keeps restarting a server belongs with the server.
+        //   4. Claude Code starts every command in a process group of its own, which whatever the command
+        //      starts stays in. CommandWatch notes each such group as it is started, and a process found in
+        //      one later belongs to that command's session, even with no parent, marker or output left.
         //
-        // Sharing a process group is deliberately not one of them. A tool that runs Claude Code itself (an
-        // editor, an orchestrator) shares its group with it, and would be taken for a leftover.
+        // Merely sharing a process group with something already placed is deliberately not one of them. A
+        // tool that runs Claude Code itself (an editor, an orchestrator) shares its group with it, and
+        // would be taken for a leftover.
         let claudes = commands.keys.filter(isClaude)
-        let sessionOf = records(of: claudes).compactMapValues { $0["sessionId"] as? String }
+        var sessionOf = records(of: claudes).compactMapValues { $0["sessionId"] as? String }
+        // A Claude Code process started by another one works for that one's session.
+        for pid in claudes where sessionOf[pid] == nil {
+            var at = pid
+            var seen = Set<Int32>()
+            while let up = parent[at], up > 1, seen.insert(at).inserted {
+                if isClaude(up), let session = sessionOf[up] {
+                    sessionOf[pid] = session
+                    break
+                }
+                at = up
+            }
+        }
         let open = Set(sessionOf.values)
         let candidates = commands.keys.filter { $0 != me && parent[$0] != me && !isClaude($0) }.sorted()
+        CommandWatch.shared.settle(groups: groups, ages: ages)
+        CommandWatch.shared.watch(sessionOf)
 
         for pid in candidates where owners[pid] == nil {
             guard let session = Output.session(of: pid) else { continue }
             owners[pid] = Owner(session: session, alive: hasClaudeAncestor(pid) || open.contains(session))
+            found.append(pid)
+        }
+        // Only what cannot show a marker is placed by its group: a process that shows an environment
+        // without one was started that way on purpose.
+        for pid in candidates where owners[pid] == nil && unreadable.contains(pid) {
+            guard let group = groups[pid], let command = CommandWatch.shared.command(ofGroup: group) else { continue }
+            owners[pid] = Owner(session: command.session, alive: isClaude(command.claude) || hasClaudeAncestor(pid))
             found.append(pid)
         }
 

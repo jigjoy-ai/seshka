@@ -15,7 +15,8 @@ struct SeshkaApp: App {
         //   Seshka --kill-session <pid>   end an open session the way the Sessions tab does
         //   Seshka --disk         print what the Disk tab would offer to remove; removes nothing
         //   Seshka --remove <id>  run the same removal the Disk tab's buttons use, on a worktree or scratch item
-        if args.count >= 2, ["--list", "--kill", "--kill-session", "--disk", "--remove"].contains(args[1]) {
+        //   Seshka --list-after <seconds>   watch what open sessions start for that long, then print as --list does
+        if args.count >= 2, ["--list", "--list-after", "--kill", "--kill-session", "--disk", "--remove"].contains(args[1]) {
             CLI.run(Array(args.dropFirst()))
             exit(0)
         }
