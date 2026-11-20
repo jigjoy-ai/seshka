@@ -36,6 +36,20 @@ enum Snapshot {
                 await save(WelcomeView(finish: { _ in }, page: page).environmentObject(store),
                            size: WelcomeView.size, to: "\(folder)/welcome-\(page + 1).png")
             }
+            // What was cleaned up lately, and the picture made of it, with made-up numbers.
+            let real = store.history
+            store.pretend(history: .sample)
+            await save(ContentView(tab: .about).environmentObject(store).environmentObject(updater),
+                       size: CGSize(width: 480, height: 600), to: "\(folder)/about-week.png")
+            await save(CleanView(title: "No leftover processes", detail: "Nothing started by a closed Claude Code session is still running.")
+                .padding(30).environmentObject(store), size: CGSize(width: 480, height: 400), to: "\(folder)/clean-week.png")
+            await save(ShareView(tally: store.history.week(), period: store.history.period()), size: ShareView.size, to: "\(folder)/share.png")
+            // The file itself, made the way the buttons make it.
+            try? Share.png(store.history.week(), period: store.history.period())?.write(to: URL(fileURLWithPath: "\(folder)/share-card.png"))
+            try? Share.png(History.Tally(processes: 1284, sessions: 131, memory: 137_900_000_000, disk: 214_600_000_000), period: "since Wednesday")?
+                .write(to: URL(fileURLWithPath: "\(folder)/share-card-large.png"))
+            try? Share.png(History.Tally(disk: 6_800_000_000), period: "today")?.write(to: URL(fileURLWithPath: "\(folder)/share-card-disk.png"))
+            store.pretend(history: real)
             // The Disk tab last, twice: a few seconds in, and once everything is measured, which can take minutes.
             let started = Date()
             store.refreshDisk()
@@ -67,5 +81,18 @@ enum Snapshot {
             try? image.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: file))
         }
         window.orderOut(nil)
+    }
+}
+
+private extension History {
+    /// A busy week, for drawing.
+    static var sample: History {
+        var history = History()
+        let day = 86400.0
+        history.add(Tally(processes: 9, sessions: 3, automatic: 3, memory: 9_400_000_000), on: Date().addingTimeInterval(-9 * day))
+        history.add(Tally(processes: 27, memory: 6_013_000_000), on: Date().addingTimeInterval(-5 * day))
+        history.add(Tally(processes: 4, sessions: 7, automatic: 5, memory: 21_300_000_000, disk: 8_900_000_000), on: Date().addingTimeInterval(-2 * day))
+        history.add(Tally(processes: 11, sessions: 5, automatic: 2, memory: 14_100_000_000, disk: 6_800_000_000))
+        return history
     }
 }

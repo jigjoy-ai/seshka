@@ -49,6 +49,8 @@ struct AboutView: View {
                     .controlSize(.small)
                 }
 
+                WeekRow()
+
                 card {
                     Text("Made by lotus from the JigJoy team")
                         .font(.system(size: 12, weight: .medium))

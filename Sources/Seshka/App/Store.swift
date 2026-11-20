@@ -80,6 +80,9 @@ final class Store: ObservableObject {
         let reason: String
     }
 
+    /// What has been cleaned up so far, day by day. Kept on disk.
+    @Published private(set) var history = History.load()
+
     /// In live sessions, hide processes younger than this; those are ordinary tool calls.
     private let minLiveAge = 60
     private var timer: Timer?
@@ -184,7 +187,7 @@ final class Store: ObservableObject {
                     let due = self.idleSessions.filter { !self.killing.contains($0.process.pid) }
                     if !due.isEmpty {
                         self.lastAutoEnd = AutoEnd(count: due.count, date: Date())
-                        self.killIdleSessions()
+                        self.killIdleSessions(automatic: true)
                     }
                 }
                 if self.rescanWhenDone {
@@ -195,7 +198,8 @@ final class Store: ObservableObject {
         }
     }
 
-    func kill(_ procs: [Proc]) {
+    /// `sessions` are the ones among `procs` that are the Claude Code process of an open session.
+    func kill(_ procs: [Proc], sessions: Set<Int32> = [], automatic: Bool = false) {
         let targets = procs.filter { !killing.contains($0.pid) }
         guard !targets.isEmpty else { return }
         killing.formUnion(targets.map(\.pid))
@@ -206,6 +210,8 @@ final class Store: ObservableObject {
             await MainActor.run {
                 self.killing.subtract(targets.map(\.pid))
                 if !gone.isEmpty { self.announceFreed(bytes: bytes, count: gone.count) }
+                let ended = gone.filter { sessions.contains($0.pid) }.count
+                self.record(History.Tally(processes: gone.count - ended, sessions: ended, automatic: automatic ? ended : 0, memory: bytes))
                 // Take the dead ones off the list right away; the rescan then confirms it.
                 let pids = Set(gone.map(\.pid))
                 withAnimation(Store.listAnimation) {
@@ -251,11 +257,27 @@ final class Store: ObservableObject {
     /// Ends a session: the Claude Code process and what it has running, except protected processes.
     /// The conversation itself is not lost; `claude --resume` brings it back.
     func kill(running session: RunningSession) {
-        kill([session.process] + session.procs.filter { !isProtected($0) })
+        kill([session.process] + session.procs.filter { !isProtected($0) }, sessions: [session.process.pid])
     }
 
-    func killIdleSessions() {
-        kill(idleSessions.flatMap { [$0.process] + $0.procs.filter { !isProtected($0) } })
+    func killIdleSessions(automatic: Bool = false) {
+        let idle = idleSessions
+        kill(idle.flatMap { [$0.process] + $0.procs.filter { !isProtected($0) } }, sessions: Set(idle.map(\.process.pid)), automatic: automatic)
+    }
+
+    // MARK: - History
+
+    private func record(_ tally: History.Tally) {
+        // Read again first: another copy of seshka may have written since.
+        var latest = History.load()
+        latest.add(tally)
+        latest.save()
+        history = latest
+    }
+
+    /// Shows a made-up history, for drawing the views that use it. Nothing is written.
+    func pretend(history: History) {
+        self.history = history
     }
 
     // MARK: - Disk
@@ -351,7 +373,10 @@ final class Store: ObservableObject {
                 }
                 // A worktree that went to the Trash still takes its room until the Trash is emptied.
                 let freed = (item.bytes ?? 0) > left ? (item.bytes ?? 0) - left : 0
-                if item.state != .uncommitted { self.diskFreed += freed }
+                if item.state != .uncommitted {
+                    self.diskFreed += freed
+                    self.record(History.Tally(disk: freed))
+                }
                 withAnimation(Store.listAnimation) {
                     if left == 0 {
                         self.removedDuringScan.insert(item.id)

@@ -18,6 +18,7 @@ seshka is a macOS menu bar app that finds them and kills them.
 - Shows every open session too: whether it is working or idle, for how long, and what it holds.
 - Ends idle sessions in one click, or on its own once they have waited longer than you allow (two hours unless you change it; off until you turn it on).
 - Shows what sessions left on disk, and removes it when you click: the worktrees Claude Code made for its agents, the scratch files of closed sessions, and caches that fill up again by themselves (Gradle, pnpm, Yarn, Homebrew downloads and others). Only caches a tool refills on its own are offered, so clearing one never leaves something broken.
+- Keeps count of what it cleaned up over the last week, and makes a picture of it to share: memory freed, processes killed, sessions ended, disk cleaned. Only the numbers are on it.
 
 The doll in the menu bar is open while something is left behind, and closed when your Mac is clean.
 The first time it runs, a short tour shows where it lives and what each tab does. It comes back once after an update that has something new to show.
@@ -58,6 +59,9 @@ On disk, nothing is removed without a click, and nothing that is in use is offer
 a process runs in, not the scratch files of a session that is open or wrote to them within the hour. A worktree
 with uncommitted changes goes to the Trash instead of being deleted, and removing a worktree never removes its
 branch.
+
+What seshka cleans up is counted per day in `~/Library/Application Support/Seshka/history.json`. Only numbers are
+kept there, never a name, a command or a path. The picture made from them stays on your Mac until you share it.
 
 Nothing leaves your Mac.
 

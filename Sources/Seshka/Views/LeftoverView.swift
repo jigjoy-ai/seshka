@@ -71,6 +71,7 @@ struct CleanView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
+            WeekRow().padding(.top, 20)
         }
         .onAppear {
             // Held open for a beat, then about a second and a half to drop shut and settle.
