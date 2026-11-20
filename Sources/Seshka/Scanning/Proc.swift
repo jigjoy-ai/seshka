@@ -61,6 +61,15 @@ struct Proc: Identifiable, Hashable {
         return text.replacingOccurrences(of: "\\012", with: " ")
     }
 
+    /// The Claude Code plugin this process runs from, when it runs from one: as a rule an MCP server
+    /// that the session started for itself, not something it was asked to run.
+    var plugin: String? {
+        guard let folder = command.range(of: "/.claude/plugins/") else { return nil }
+        // ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/...
+        let parts = command[folder.upperBound...].split(separator: " ", maxSplits: 1).first?.split(separator: "/") ?? []
+        return parts.count >= 3 && parts[0] == "cache" ? String(parts[2]) : "plugin"
+    }
+
     /// The app bundle this process is the main executable of, e.g. "/Applications/Google Chrome.app/".
     var bundleRoot: String? {
         guard let marker = path.range(of: ".app/Contents/MacOS/") else { return nil }

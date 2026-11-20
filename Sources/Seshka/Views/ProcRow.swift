@@ -72,6 +72,18 @@ struct ProcRow: View {
                         .padding(.vertical, 1.5)
                         .background(Capsule().fill(Color.blue.opacity(0.16)))
                 }
+                if let plugin = proc.plugin {
+                    HStack(spacing: 3) {
+                        Image(systemName: "puzzlepiece.extension.fill").font(.system(size: 8.5))
+                        Text(plugin).font(.system(size: 10, weight: .medium)).lineLimit(1)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .foregroundStyle(Color.teal)
+                    .background(Capsule().fill(Color.teal.opacity(0.16)))
+                    .fixedSize()
+                    .help("Part of the session itself: it runs from the Claude Code plugin \"\(plugin)\", most likely as its MCP server. Killing it takes the plugin's tools away from the session.")
+                }
                 Text(proc.shortCommand)
                     .font(.system(size: 11.5, design: .monospaced))
                     .lineLimit(1)

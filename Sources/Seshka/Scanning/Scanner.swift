@@ -61,16 +61,19 @@ enum Scanner {
 
         func isClaude(_ pid: Int32) -> Bool { comm[pid] == "claude" }
 
-        func hasClaudeAncestor(_ start: Int32) -> Bool {
+        /// The nearest Claude Code process above this one, if its line of parents reaches one.
+        func claudeAncestor(_ start: Int32) -> Int32? {
             var pid = start
             var seen = Set<Int32>()
             while pid > 1, let next = parent[pid], !seen.contains(pid) {
                 seen.insert(pid)
                 pid = next
-                if isClaude(pid) { return true }
+                if isClaude(pid) { return pid }
             }
-            return false
+            return nil
         }
+
+        func hasClaudeAncestor(_ start: Int32) -> Bool { claudeAncestor(start) != nil }
 
         /// The session a process belongs to, and whether that session is still open.
         struct Owner {
@@ -81,6 +84,8 @@ enum Scanner {
         /// In the order found: the marked ones first, as before.
         var found: [Int32] = []
         var marked = Set<Int32>()
+        /// The Claude Code process a marked process names as its own, when it names one.
+        var named: [Int32: Int32] = [:]
         /// Processes that show no environment at all. macOS hides it for its own programs (/bin/bash,
         /// /usr/bin/ssh, /usr/bin/tail) and for some apps, Chrome among them.
         var unreadable = Set<Int32>()
@@ -103,6 +108,7 @@ enum Scanner {
             let claudePid = env.firstMatch(of: claudePidPattern).flatMap { Int32($0.1) }
             let alive = (claudePid.map(isClaude) ?? false) || hasClaudeAncestor(pid)
             owners[pid] = Owner(session: session, alive: alive)
+            if let claudePid, isClaude(claudePid) { named[pid] = claudePid }
             marked.insert(pid)
             found.append(pid)
         }
@@ -197,6 +203,23 @@ enum Scanner {
             }
         }
         guard !found.isEmpty else { return [] }
+
+        // The session a process names is the one it was started in. Claude Code moves on to a new session
+        // (after /clear, or when a long conversation is carried over into a new one) without restarting
+        // what it has running, an MCP server for one. So what still hangs off an open Claude Code process
+        // belongs to the session that process has now, whatever it was called when it started.
+        for pid in found {
+            guard let claude = claudeAncestor(pid) ?? named[pid], let session = sessionOf[claude] else {
+                // Its session is closed. If it moved on before closing, the ID it ended with is the one
+                // its conversation is filed under.
+                if let owner = owners[pid], !owner.alive {
+                    owners[pid] = Owner(session: SessionAlias.current(owner.session), alive: false)
+                }
+                continue
+            }
+            if let was = owners[pid]?.session { SessionAlias.note(was, is: session) }
+            owners[pid] = Owner(session: session, alive: true)
+        }
 
         var procs: [Proc] = found.map { pid in
             Proc(
