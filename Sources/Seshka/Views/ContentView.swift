@@ -56,7 +56,15 @@ struct ContentView: View {
                 .frame(width: 36, height: 36)
                 .animation(.spring(response: 1.1, dampingFraction: 0.55).delay(0.6), value: store.orphanCount > 0)
             VStack(alignment: .leading, spacing: 1) {
-                Text("seshka").font(.system(size: 15, weight: .semibold))
+                HStack(spacing: 8) {
+                    Text("seshka").font(.system(size: 15, weight: .semibold)).fixedSize()
+                    // Only while something is working. In the minute after, the Mac is still up, but not for long.
+                    if case .holding(let working) = store.awake, working > 0 {
+                        AwakeSign()
+                            .help("The Mac stays awake with its lid closed while \(working) session\(working == 1 ? " is" : "s are") working, and sleeps when the last one finishes")
+                            .transition(.opacity)
+                    }
+                }
                 Text(summary)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -115,8 +123,8 @@ struct ContentView: View {
             TabButton(title: "Leftover", icon: "moon.zzz", count: store.orphanCount, selected: tab == .orphans) { tab = .orphans }
             TabButton(title: "Sessions", icon: "terminal", count: store.idleSessions.count, selected: tab == .sessions) { tab = .sessions }
             TabButton(title: "Disk", icon: "internaldrive", count: nil, selected: tab == .disk) { tab = .disk }
-            TabButton(title: "Settings", icon: "gearshape", count: nil, selected: tab == .settings) { tab = .settings }
-            TabButton(title: "About", icon: "info.circle", count: nil, selected: tab == .about) { tab = .about }
+            TabButton(title: "Settings", icon: "gearshape", count: nil, selected: tab == .settings, iconOnly: true) { tab = .settings }
+            TabButton(title: "About", icon: "info.circle", count: nil, selected: tab == .about, iconOnly: true) { tab = .about }
         }
         .padding(4)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.06)))

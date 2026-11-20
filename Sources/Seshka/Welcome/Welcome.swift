@@ -9,7 +9,7 @@ enum Welcome {
     /// Which tour this is. Raise it when the tour has something new to show: everyone who saw an
     /// earlier one, or none, then gets it once, the first time the new version starts. That is how
     /// people who update learn what changed, and not only people who install.
-    private static let edition = 1
+    private static let edition = 2
     private static let key = "tourSeen"
     private static var window: NSWindow?
     private static var pointer: NSPanel?

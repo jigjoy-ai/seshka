@@ -32,7 +32,7 @@ enum Snapshot {
             await save(ContentView(tab: .orphans).environmentObject(store).environmentObject(updater),
                        size: CGSize(width: 480, height: 600), to: "\(folder)/update.png")
             updater.pretend(version: nil)
-            for page in 0..<5 {
+            for page in 0..<WelcomeView.pages {
                 await save(WelcomeView(finish: { _ in }, page: page).environmentObject(store),
                            size: WelcomeView.size, to: "\(folder)/welcome-\(page + 1).png")
             }
@@ -50,6 +50,13 @@ enum Snapshot {
                 .write(to: URL(fileURLWithPath: "\(folder)/share-card-large.png"))
             try? Share.png(History.Tally(disk: 6_800_000_000), period: "today")?.write(to: URL(fileURLWithPath: "\(folder)/share-card-disk.png"))
             store.pretend(history: real)
+            // Staying awake with the lid closed, as it looks while two sessions work. Nothing is switched.
+            store.pretend(awake: .holding(2))
+            await save(ContentView(tab: .settings).environmentObject(store).environmentObject(updater),
+                       size: CGSize(width: 480, height: 600), to: "\(folder)/settings-awake.png")
+            await save(ContentView(tab: .orphans).environmentObject(store).environmentObject(updater),
+                       size: CGSize(width: 480, height: 600), to: "\(folder)/awake-light.png", light: true)
+            store.pretend(awake: .off)
             // The Disk tab last, twice: a few seconds in, and once everything is measured, which can take minutes.
             let started = Date()
             store.refreshDisk()
@@ -65,11 +72,11 @@ enum Snapshot {
         }
     }
 
-    private static func save<Content: View>(_ content: Content, size: CGSize, to file: String) async {
+    private static func save<Content: View>(_ content: Content, size: CGSize, to file: String, light: Bool = false) async {
         // Far off the screen, so nothing flashes in front of whoever is working.
         let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: size.width, height: size.height),
                               styleMask: [.borderless], backing: .buffered, defer: false)
-        window.appearance = NSAppearance(named: .darkAqua)
+        window.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
         // The menu's own window is not there to give the views a background.
         window.contentView = NSHostingView(rootView: content.frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor)))

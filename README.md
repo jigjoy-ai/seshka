@@ -18,6 +18,7 @@ seshka is a macOS menu bar app that finds them and kills them.
 - Shows every open session too: whether it is working or idle, for how long, and what it holds.
 - Ends idle sessions in one click, or on its own once they have waited longer than you allow (two hours unless you change it; off until you turn it on).
 - Shows what sessions left on disk, and removes it when you click: the worktrees Claude Code made for its agents, the scratch files of closed sessions, and caches that fill up again by themselves (Gradle, pnpm, Yarn, Homebrew downloads and others). Only caches a tool refills on its own are offered, so clearing one never leaves something broken.
+- Keeps the Mac awake with its lid closed while a session is working, and lets it sleep when the last one finishes. Off until you turn it on.
 - Keeps count of what it cleaned up over the last week, and makes a picture of it to share: memory freed, processes killed, sessions ended, disk cleaned. Only the numbers are on it.
 
 The doll in the menu bar is open while something is left behind, and closed when your Mac is clean.
@@ -59,6 +60,14 @@ On disk, nothing is removed without a click, and nothing that is in use is offer
 a process runs in, not the scratch files of a session that is open or wrote to them within the hour. A worktree
 with uncommitted changes goes to the Trash instead of being deleted, and removing a worktree never removes its
 branch.
+
+Closing the lid puts a Mac to sleep whatever is running, and the one setting that changes that, `pmset disablesleep`,
+takes root. So the first time you turn on "Keep working with the lid closed", seshka asks for your password and adds
+a rule to sudo, in `/etc/sudoers.d/seshka-lid`, that allows exactly `pmset disablesleep 1` and `pmset disablesleep 0`
+without one. It switches sleep off only while a session is working, and back on a few minutes after the last one
+stops, when the battery falls below the level you set, when the Mac runs hot, and when seshka quits. A Mac whose lid
+is closed at that moment is then put to sleep. If seshka is killed while sleep is off, it puts it back the next time
+it starts; a restart of the Mac does too. Settings has a button that removes the rule again.
 
 What seshka cleans up is counted per day in `~/Library/Application Support/Seshka/history.json`. Only numbers are
 kept there, never a name, a command or a path. The picture made from them stays on your Mac until you share it.

@@ -164,3 +164,27 @@ struct DiskPicture: View {
         }
     }
 }
+
+/// A Mac in a backpack with a session still working on it.
+struct LidPicture: View {
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "backpack.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(Palette.yellow)
+            AwakeSign()
+            PictureCard {
+                HStack(spacing: 9) {
+                    Circle().fill(Color.green).frame(width: 8, height: 8)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Refactor billing").font(.system(size: 12.5, weight: .semibold))
+                        Text("api  ·  working  ·  lid closed for 40 min").font(.system(size: 10.5)).foregroundStyle(Palette.muted)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 11)
+                .padding(.vertical, 8)
+            }
+        }
+    }
+}

@@ -83,6 +83,33 @@ final class Store: ObservableObject {
     /// What has been cleaned up so far, day by day. Kept on disk.
     @Published private(set) var history = History.load()
 
+    // Staying awake with the lid closed. The rules are in Store+Awake.swift.
+
+    /// While on, the Mac is kept from sleeping for as long as a session is working, lid closed or not.
+    /// Turned on through `setStaysAwake`, which asks for the permission it needs.
+    @Published var staysAwake: Bool {
+        didSet { UserDefaults.standard.set(staysAwake, forKey: Keys.staysAwake) }
+    }
+    /// On battery, staying awake stops below this many percent.
+    @Published var awakeBatteryFloor: Int {
+        didSet {
+            UserDefaults.standard.set(awakeBatteryFloor, forKey: Keys.awakeFloor)
+            updateAwake()
+        }
+    }
+    @Published var awake: Awake = .off
+    /// Why sleep could not be switched, when it could not.
+    @Published var awakeFailure: String?
+    /// The last time a session was seen working.
+    var lastWorking: Date?
+    /// Keeps macOS from slowing seshka's timers down while it is the one holding the Mac awake.
+    var awakeActivity: NSObjectProtocol?
+    var awakeTimer: Timer?
+    /// Whether the lid was closed the last time seshka looked, to turn the screen off once when it closes.
+    var lidWasClosed = false
+    /// Set by the copy that only draws pictures: it shows whatever it is told and never switches sleep.
+    var awakeFrozen = false
+
     /// In live sessions, hide processes younger than this; those are ordinary tool calls.
     private let minLiveAge = 60
     private var timer: Timer?
@@ -96,6 +123,8 @@ final class Store: ObservableObject {
         static let idleLimit = "idleLimitMinutes"
         static let endsIdle = "endsIdleSessions"
         static let disk = "diskItems"
+        static let staysAwake = "staysAwake"
+        static let awakeFloor = "awakeBatteryFloor"
     }
 
     init() {
@@ -107,6 +136,9 @@ final class Store: ObservableObject {
         let limit = defaults.integer(forKey: Keys.idleLimit)
         idleLimitMinutes = limit > 0 ? max(limit, Store.minimumIdleLimit) : 120
         endsIdleSessions = defaults.bool(forKey: Keys.endsIdle)
+        staysAwake = defaults.bool(forKey: Keys.staysAwake)
+        let floor = defaults.integer(forKey: Keys.awakeFloor)
+        awakeBatteryFloor = floor > 0 ? floor : 20
         // The list as it was last measured, kept between runs: measuring takes the better part of a
         // minute, and the Disk tab should have its rows and numbers the moment it opens.
         if let saved = defaults.data(forKey: Keys.disk), let items = try? JSONDecoder().decode([DiskItem].self, from: saved) {
@@ -182,6 +214,7 @@ final class Store: ObservableObject {
                 }
                 self.lastScan = Date()
                 self.scanning = false
+                self.updateAwake()
                 if self.endsIdleSessions {
                     // Sessions already being ended are not counted again.
                     let due = self.idleSessions.filter { !self.killing.contains($0.process.pid) }
@@ -278,6 +311,12 @@ final class Store: ObservableObject {
     /// Shows a made-up history, for drawing the views that use it. Nothing is written.
     func pretend(history: History) {
         self.history = history
+    }
+
+    /// Shows a made-up state of staying awake, for drawing. Nothing on the Mac is switched.
+    func pretend(awake: Awake) {
+        awakeFrozen = true
+        self.awake = awake
     }
 
     // MARK: - Disk

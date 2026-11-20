@@ -21,7 +21,8 @@ struct WelcomeView: View {
     @State private var forward = true
     @State private var loginError: String?
 
-    private static let pages = 5
+    /// One page more on a Mac with a lid: the one about closing it.
+    static var pages: Int { Lid.exists ? 6 : 5 }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -123,6 +124,22 @@ struct WelcomeView: View {
             Slide(title: "It shows what they left on disk",
                   text: "Worktrees made for agents, scratch files of closed sessions, and caches that fill up again by themselves. See what takes the room and remove it. Nothing goes without a click.") {
                 DiskPicture()
+            }
+        case 4 where Lid.exists:
+            Slide(title: "Close the lid. Claude keeps working.",
+                  text: "A closed lid puts a Mac to sleep in the middle of a task. With this on, seshka keeps it awake while a session is working, and lets it sleep when the last one finishes. It stops when the battery runs low.") {
+                VStack(spacing: 12) {
+                    LidPicture()
+                    Toggle(isOn: Binding(get: { store.staysAwake }, set: { store.setStaysAwake($0) })) {
+                        Text("Keep working with the lid closed").font(.system(size: 12.5))
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .tint(Palette.red)
+                    Text(store.awakeFailure ?? (Lid.isAllowed ? " " : "It asks for your password once."))
+                        .font(.system(size: 11))
+                        .foregroundStyle(store.awakeFailure == nil ? Palette.muted : Palette.red)
+                }
             }
         default:
             Slide(title: "You are set",
