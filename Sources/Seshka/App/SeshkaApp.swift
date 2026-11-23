@@ -86,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         termination?.setEventHandler { NSApp.terminate(nil) }
         termination?.resume()
+        UpdateDot.follow(updater, store)
         if Snapshot.folder != nil {
             Snapshot.run(store: store, updater: updater)
         } else if Welcome.isDue || CommandLine.arguments.contains("--welcome") {

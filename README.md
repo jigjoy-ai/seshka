@@ -28,7 +28,7 @@ The first time it runs, a short tour shows where it lives and what each tab does
 
 **[Download for macOS](https://seshka.dev/download/Seshka.dmg)**, open the disk image and drag Seshka to Applications.
 
-Requires macOS 14 or later, on Apple silicon or Intel. The app is signed and notarized, and keeps itself up to date: it downloads a new version in the background, tells you with a notification, and installs it when you click Restart now or the next time it quits.
+Requires macOS 14 or later, on Apple silicon or Intel. The app is signed and notarized, and keeps itself up to date: it downloads a new version in the background, tells you with a notification and a red dot on its icon, and installs it when you click Restart now or the next time it quits.
 
 To build it yourself:
 
