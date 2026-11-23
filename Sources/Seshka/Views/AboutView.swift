@@ -25,6 +25,9 @@ struct AboutView: View {
                 }
                 .padding(.top, 6)
 
+                AboutLinks()
+                GiftCard()
+
                 card {
                     if let ready = updater.availableVersion {
                         HStack {
@@ -52,17 +55,6 @@ struct AboutView: View {
                 WeekRow()
 
                 card {
-                    Text("Made by lotus from the JigJoy team")
-                        .font(.system(size: 12, weight: .medium))
-                    VStack(alignment: .leading, spacing: 7) {
-                        link("lotus015 on GitHub", "https://github.com/lotus015")
-                        link("JigJoy on GitHub", "https://github.com/jigjoy-ai")
-                        link("Source code", "https://github.com/jigjoy-ai/seshka")
-                        link("seshka.dev", "https://seshka.dev")
-                    }
-                }
-
-                card {
                     HStack {
                         Text("How it works").font(.system(size: 12, weight: .medium))
                         Spacer()
@@ -75,21 +67,12 @@ struct AboutView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Text("Free and open source, under the MIT license.")
+                Text("Made by lotus from the JigJoy team. Free and open source, under the MIT license.")
                     .font(.system(size: 10.5))
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
-        }
-    }
-
-    private func link(_ title: String, _ address: String) -> some View {
-        Link(destination: URL(string: address)!) {
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.up.right.square").font(.system(size: 11))
-                Text(title).font(.system(size: 12))
-            }
         }
     }
 

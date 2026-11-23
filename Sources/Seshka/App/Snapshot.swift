@@ -26,6 +26,8 @@ enum Snapshot {
                 await save(ContentView(tab: tab).environmentObject(store).environmentObject(updater),
                            size: CGSize(width: 480, height: 600), to: "\(folder)/\(name).png")
             }
+            await save(ContentView(tab: .about).environmentObject(store).environmentObject(updater),
+                       size: CGSize(width: 480, height: 600), to: "\(folder)/about-light.png", light: true)
             // The menu as it looks while an update waits for a restart.
             updater.announces = false
             updater.pretend(version: "9.9.9")
