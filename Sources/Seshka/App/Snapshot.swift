@@ -40,6 +40,19 @@ enum Snapshot {
             await save(ContentView(tab: .settings).environmentObject(store).environmentObject(updater),
                        size: CGSize(width: 480, height: 600), to: "\(folder)/settings-plugin.png")
             store.pretend(ended: [])
+            // What was killed and why: the real log first, then a made-up one, in both appearances.
+            await save(ContentView(tab: .log).environmentObject(store).environmentObject(updater),
+                       size: CGSize(width: 480, height: 600), to: "\(folder)/history-real.png")
+            let log = store.log
+            store.pretend(log: .sample)
+            await save(ContentView(tab: .log).environmentObject(store).environmentObject(updater),
+                       size: CGSize(width: 480, height: 600), to: "\(folder)/history.png")
+            await save(ContentView(tab: .log).environmentObject(store).environmentObject(updater),
+                       size: CGSize(width: 480, height: 600), to: "\(folder)/history-light.png", light: true)
+            store.pretend(log: CleanupLog())
+            await save(ContentView(tab: .log).environmentObject(store).environmentObject(updater),
+                       size: CGSize(width: 480, height: 600), to: "\(folder)/history-empty.png")
+            store.pretend(log: log)
             // The menu as it looks while an update waits for a restart.
             updater.announces = false
             updater.pretend(version: "9.9.9")

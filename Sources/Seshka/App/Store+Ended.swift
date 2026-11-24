@@ -52,7 +52,7 @@ extension Store {
             let left = groups.flatMap(\.procs).filter { !isProtected($0) && !killing.contains($0.pid) }
             guard !left.isEmpty else { continue }
             lastEndClean = EndClean(count: left.count, title: groups.first.map { $0.title ?? $0.project } ?? "a session", date: Date())
-            kill(left)
+            kill(left, reason: .sessionEnded)
         }
     }
 }

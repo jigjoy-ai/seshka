@@ -49,6 +49,12 @@ runs, a short tour shows where it lives and what each tab does.
 - Keeps the Mac awake with its lid closed while a session is working, and lets it sleep when the last one finishes.
   Off until you turn it on.
 
+**History**
+
+- Lists what it killed in the last 14 days and why: you clicked, a session sat idle past your limit, or a session ended
+  and its leftovers went with it. Each entry names the process, its port and the session it belonged to, and is marked
+  AUTO when seshka acted on its own.
+
 **The week in numbers**
 
 - Keeps count of what it cleaned up over the last week and makes a picture of it to share: memory freed, processes
@@ -119,12 +125,17 @@ it starts; a restart of the Mac does too. Settings has a button that removes the
 What seshka cleans up is counted per day in `~/Library/Application Support/Seshka/history.json`. Only numbers are
 kept there, never a name, a command or a path. The picture made from them stays on your Mac until you share it.
 
+What it killed and why is kept next to it, in `cleanups.json`, for the History tab: the command, its port and memory,
+the title of the session it belonged to, the time and the reason. Entries older than 14 days are dropped, the file is
+readable by you alone, and Clear on the History tab empties it.
+
 Nothing about your sessions leaves your Mac. The only thing seshka fetches is its own update.
 
 ## Questions
 
 **Will it kill something I still need?** Only what you click, unless you turn on one of the two automatic switches.
 Nothing an open session is running is ever on the Leftover tab, and protected processes are skipped by every bulk kill.
+Whatever it does kill is listed on the History tab with the reason.
 
 **Is a killed session lost?** No. The conversation stays where Claude Code keeps it. The Resume button, or
 `claude --resume`, brings it back.

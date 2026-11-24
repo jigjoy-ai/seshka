@@ -68,6 +68,7 @@ enum CLI {
             let forced = Killer.terminate([proc])
             let gone = !Killer.isRunning(pid)
             print("pid \(pid): \(gone ? "gone, freed \(formatBytes(proc.memory))" : "STILL RUNNING") (\(forced.isEmpty ? "exited on SIGTERM" : "needed SIGKILL"))")
+            if gone { CleanupLog.note(Cleanup(reason: .command, items: [Cleanup.Item(proc, place: place(of: proc, in: procs))])) }
         case "--kill-session":
             guard args.count == 2, let pid = Int32(args[1]),
                   let session = Scanner.sessions(procs: procs).first(where: { $0.process.pid == pid }) else {
@@ -76,6 +77,9 @@ enum CLI {
             }
             Killer.terminate([session.process] + session.procs)
             print("session \(pid): \(Killer.isRunning(pid) ? "STILL RUNNING" : "ended, freed \(formatBytes(session.memory))")")
+            let name = session.title ?? session.project
+            CleanupLog.note(Cleanup(reason: .command, items: ([session.process] + session.procs).filter { !Killer.isRunning($0.pid) }
+                .map { Cleanup.Item($0, place: name, session: $0.pid == pid) }))
         default:
             break
         }
@@ -116,7 +120,19 @@ enum CLI {
             var history = History.load()
             history.add(History.Tally(processes: gone.count, memory: freed))
             history.save()
+            // And written down with the reason, next to what the app itself killed.
+            let dead = Set(gone.map(\.pid))
+            CleanupLog.note(Cleanup(reason: .command, items: groups.flatMap { group in
+                group.procs.filter { dead.contains($0.pid) }.map { Cleanup.Item($0, place: group.title ?? group.project) }
+            }))
         }
+    }
+
+    /// The session a process belonged to, by its title, the way the log names it.
+    private static func place(of proc: Proc, in procs: [Proc]) -> String {
+        let group = Scanner.group(procs.filter { $0.sessionID == proc.sessionID && $0.sessionAlive == proc.sessionAlive })
+            .first { $0.procs.contains { $0.pid == proc.pid } }
+        return group.map { $0.title ?? $0.project } ?? (proc.cwd as NSString).lastPathComponent
     }
 
     private static func dump(_ groups: [SessionGroup]) {

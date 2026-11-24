@@ -7,7 +7,7 @@ struct ContentView: View {
     @State var tab: Tab = .orphans
     @State private var spin = 0.0
 
-    enum Tab: Hashable { case orphans, sessions, disk, settings, about }
+    enum Tab: Hashable { case orphans, sessions, disk, log, settings, about }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,6 +29,8 @@ struct ContentView: View {
                     SessionsView()
                 case .disk:
                     DiskView()
+                case .log:
+                    LogView()
                 case .settings:
                     SettingsView()
                 case .about:
@@ -123,6 +125,7 @@ struct ContentView: View {
             TabButton(title: "Leftover", icon: "moon.zzz", count: store.orphanCount, selected: tab == .orphans) { tab = .orphans }
             TabButton(title: "Sessions", icon: "terminal", count: store.idleSessions.count, selected: tab == .sessions) { tab = .sessions }
             TabButton(title: "Disk", icon: "internaldrive", count: nil, selected: tab == .disk) { tab = .disk }
+            TabButton(title: "History", icon: "clock.arrow.circlepath", count: nil, selected: tab == .log, iconOnly: true) { tab = .log }
             TabButton(title: "Settings", icon: "gearshape", count: nil, selected: tab == .settings, iconOnly: true) { tab = .settings }
             TabButton(title: "About", icon: "info.circle", count: nil, selected: tab == .about, iconOnly: true) { tab = .about }
         }

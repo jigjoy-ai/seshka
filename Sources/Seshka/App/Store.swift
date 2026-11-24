@@ -82,6 +82,10 @@ final class Store: ObservableObject {
 
     /// What has been cleaned up so far, day by day. Kept on disk.
     @Published private(set) var history = History.load()
+    /// What was killed lately and why, one entry for each clean-up. Kept on disk. Written through Store+Log.swift.
+    @Published var log = CleanupLog.load()
+    /// Set by the copy that only draws pictures, so the made-up log is not replaced by the real one.
+    var logPretended = false
 
     // Staying awake with the lid closed. The rules are in Store+Awake.swift.
 
@@ -264,11 +268,13 @@ final class Store: ObservableObject {
     }
 
     /// `sessions` are the ones among `procs` that are the Claude Code process of an open session.
+    /// `reason` is what goes into the log next to them.
     /// `resumable` are the sessions among them that can be brought back, by the PID of each.
-    func kill(_ procs: [Proc], sessions: Set<Int32> = [], automatic: Bool = false, resumable: [Int32: Resumable] = [:]) {
+    func kill(_ procs: [Proc], sessions: Set<Int32> = [], reason: Cleanup.Reason = .click, resumable: [Int32: Resumable] = [:]) {
         let targets = procs.filter { !killing.contains($0.pid) }
         guard !targets.isEmpty else { return }
         killing.formUnion(targets.map(\.pid))
+        let places = places(of: targets)
         Task.detached(priority: .userInitiated) {
             Killer.terminate(targets)
             let gone = targets.filter { !Killer.isRunning($0.pid) }
@@ -282,7 +288,8 @@ final class Store: ObservableObject {
                     Resumable.save(self.ended)
                 }
                 let ended = gone.filter { sessions.contains($0.pid) }.count
-                self.record(History.Tally(processes: gone.count - ended, sessions: ended, automatic: automatic ? ended : 0, memory: bytes))
+                self.record(History.Tally(processes: gone.count - ended, sessions: ended, automatic: reason.automatic ? ended : 0, memory: bytes))
+                self.note(gone, reason: reason, sessions: sessions, places: places)
                 // Take the dead ones off the list right away; the rescan then confirms it.
                 let pids = Set(gone.map(\.pid))
                 withAnimation(Store.listAnimation) {
@@ -318,24 +325,24 @@ final class Store: ObservableObject {
 
     /// Kills everything in a session except protected processes.
     func kill(session: SessionGroup) {
-        kill(session.procs.filter { !isProtected($0) })
+        kill(session.procs.filter { !isProtected($0) }, reason: .session)
     }
 
     func killAllOrphans() {
-        kill(killableOrphans)
+        kill(killableOrphans, reason: .all)
     }
 
     /// Ends a session: the Claude Code process and what it has running, except protected processes.
     /// The conversation itself is not lost; `claude --resume` brings it back.
     func kill(running session: RunningSession) {
         kill([session.process] + session.procs.filter { !isProtected($0) }, sessions: [session.process.pid],
-             resumable: Store.resumable([session]))
+             reason: .ended, resumable: Store.resumable([session]))
     }
 
     func killIdleSessions(automatic: Bool = false) {
         let idle = idleSessions
         kill(idle.flatMap { [$0.process] + $0.procs.filter { !isProtected($0) } }, sessions: Set(idle.map(\.process.pid)),
-             automatic: automatic, resumable: Store.resumable(idle))
+             reason: automatic ? .idleAutomatic : .idle, resumable: Store.resumable(idle))
     }
 
     /// What it takes to bring each of these sessions back, noted while they are still running.
