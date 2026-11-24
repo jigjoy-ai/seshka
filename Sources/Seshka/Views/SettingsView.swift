@@ -41,6 +41,8 @@ struct SettingsView: View {
                     section("LID CLOSED") { AwakeSettings() }
                 }
 
+                section("WHEN A SESSION ENDS") { PluginSettings() }
+
                 section("PROTECTED") {
                     Text("A process whose command contains one of these is skipped by Kill all and Kill session.")
                         .font(.system(size: 10.5))

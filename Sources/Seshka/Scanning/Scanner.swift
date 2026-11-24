@@ -260,7 +260,10 @@ enum Scanner {
         for i in procs.indices where !marked.contains(procs[i].pid) {
             guard let inner = unwrap(procs[i]) else { continue }
             let host = procs.indices.first {
+                // Of the same session: a group can hold what another session started, and killing that
+                // must not take this session's shell with it.
                 $0 != i && !folded.contains($0) && procs[$0].group == procs[i].group && unwrap(procs[$0]) == nil
+                    && procs[$0].sessionID == procs[i].sessionID && procs[$0].sessionAlive == procs[i].sessionAlive
             }
             if let host {
                 procs[host].helpers.append(Proc.Helper(pid: procs[i].pid, command: procs[i].command))

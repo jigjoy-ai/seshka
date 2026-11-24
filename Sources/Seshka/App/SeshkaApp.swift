@@ -16,7 +16,9 @@ struct SeshkaApp: App {
         //   Seshka --disk         print what the Disk tab would offer to remove; removes nothing
         //   Seshka --remove <id>  run the same removal the Disk tab's buttons use, on a worktree or scratch item
         //   Seshka --list-after <seconds>   watch what open sessions start for that long, then print as --list does
-        if args.count >= 2, ["--list", "--list-after", "--kill", "--kill-session", "--disk", "--remove"].contains(args[1]) {
+        //   Seshka --leftovers [--here | --in <folder>]   what closed sessions left running, in words: what the plugin's commands show
+        //   Seshka --clean [--here | --in <folder>]       kill it, except protected processes, as "Kill all leftovers" does
+        if args.count >= 2, ["--list", "--list-after", "--kill", "--kill-session", "--disk", "--remove", "--leftovers", "--clean"].contains(args[1]) {
             CLI.run(Array(args.dropFirst()))
             exit(0)
         }

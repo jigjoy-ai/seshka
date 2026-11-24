@@ -12,7 +12,12 @@ struct SessionsView: View {
     var body: some View {
         VStack(spacing: 0) {
             idleCard
-            if store.sessions.isEmpty && store.live.isEmpty {
+            if store.sessions.isEmpty && store.live.isEmpty && !store.ended.isEmpty {
+                // Nothing is open, but something can be brought back.
+                ScrollView {
+                    ResumeList().padding(.horizontal, 12).padding(.bottom, 12)
+                }
+            } else if store.sessions.isEmpty && store.live.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "terminal")
                         .font(.system(size: 30, weight: .light))
@@ -35,6 +40,9 @@ struct SessionsView: View {
                         // Background processes whose session could not be matched to an open one.
                         ForEach(store.live) { group in
                             SessionCard(group: group)
+                        }
+                        if !store.ended.isEmpty {
+                            ResumeList().padding(.top, 4)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -89,7 +97,7 @@ struct SessionsView: View {
             }
 
             if let last = store.lastAutoEnd {
-                Text("Ended \(last.count) idle session\(last.count == 1 ? "" : "s") at \(last.date.formatted(date: .omitted, time: .shortened)). Bring one back with claude --resume.")
+                Text("Ended \(last.count) idle session\(last.count == 1 ? "" : "s") at \(last.date.formatted(date: .omitted, time: .shortened)). Each is listed below with a button that brings it back.")
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -110,6 +110,25 @@ final class Store: ObservableObject {
     /// Set by the copy that only draws pictures: it shows whatever it is told and never switches sleep.
     var awakeFrozen = false
 
+    // Cleaning up when the Claude Code plugin says a session has ended. The rules are in Store+Ended.swift.
+
+    /// While on, what a session left running is killed as soon as the plugin reports that it ended.
+    @Published var cleansEndedSessions: Bool {
+        didSet { UserDefaults.standard.set(cleansEndedSessions, forKey: Keys.cleansEnded) }
+    }
+    /// The last such clean-up, shown so it is never a mystery where a process went.
+    @Published var lastEndClean: EndClean?
+    /// When the plugin last reported anything. Nil until it has: then it is most likely not installed.
+    @Published var pluginHeard: Date? {
+        didSet { UserDefaults.standard.set(pluginHeard, forKey: Keys.pluginHeard) }
+    }
+    var endWatch: DispatchSourceFileSystemObject?
+    /// The reports already taken note of.
+    var endedHeard: Set<String> = []
+
+    /// The sessions seshka ended lately, newest first, each of which can be resumed with a click.
+    @Published private(set) var ended: [Resumable] = Resumable.load()
+
     /// In live sessions, hide processes younger than this; those are ordinary tool calls.
     private let minLiveAge = 60
     private var timer: Timer?
@@ -125,6 +144,8 @@ final class Store: ObservableObject {
         static let disk = "diskItems"
         static let staysAwake = "staysAwake"
         static let awakeFloor = "awakeBatteryFloor"
+        static let cleansEnded = "cleansEndedSessions"
+        static let pluginHeard = "pluginHeard"
     }
 
     init() {
@@ -139,6 +160,8 @@ final class Store: ObservableObject {
         staysAwake = defaults.bool(forKey: Keys.staysAwake)
         let floor = defaults.integer(forKey: Keys.awakeFloor)
         awakeBatteryFloor = floor > 0 ? floor : 20
+        cleansEndedSessions = defaults.bool(forKey: Keys.cleansEnded)
+        pluginHeard = defaults.object(forKey: Keys.pluginHeard) as? Date
         // The list as it was last measured, kept between runs: measuring takes the better part of a
         // minute, and the Disk tab should have its rows and numbers the moment it opens.
         if let saved = defaults.data(forKey: Keys.disk), let items = try? JSONDecoder().decode([DiskItem].self, from: saved) {
@@ -154,6 +177,7 @@ final class Store: ObservableObject {
         }
         startTimer()
         refresh()
+        watchEnded()
     }
 
     var orphanCount: Int { orphans.reduce(0) { $0 + $1.procs.count } }
@@ -215,6 +239,14 @@ final class Store: ObservableObject {
                 self.lastScan = Date()
                 self.scanning = false
                 self.updateAwake()
+                Leftovers.write(orphans)
+                self.sweepEnded()
+                // One that is open again needs no way back.
+                let open = Set(sessions.compactMap(\.sessionID))
+                if self.ended.contains(where: { open.contains($0.id) }) {
+                    self.ended.removeAll { open.contains($0.id) }
+                    Resumable.save(self.ended)
+                }
                 if self.endsIdleSessions {
                     // Sessions already being ended are not counted again.
                     let due = self.idleSessions.filter { !self.killing.contains($0.process.pid) }
@@ -232,7 +264,8 @@ final class Store: ObservableObject {
     }
 
     /// `sessions` are the ones among `procs` that are the Claude Code process of an open session.
-    func kill(_ procs: [Proc], sessions: Set<Int32> = [], automatic: Bool = false) {
+    /// `resumable` are the sessions among them that can be brought back, by the PID of each.
+    func kill(_ procs: [Proc], sessions: Set<Int32> = [], automatic: Bool = false, resumable: [Int32: Resumable] = [:]) {
         let targets = procs.filter { !killing.contains($0.pid) }
         guard !targets.isEmpty else { return }
         killing.formUnion(targets.map(\.pid))
@@ -243,6 +276,11 @@ final class Store: ObservableObject {
             await MainActor.run {
                 self.killing.subtract(targets.map(\.pid))
                 if !gone.isEmpty { self.announceFreed(bytes: bytes, count: gone.count) }
+                let back = gone.compactMap { resumable[$0.pid] }
+                if !back.isEmpty {
+                    self.ended = Resumable.trimmed(back + self.ended)
+                    Resumable.save(self.ended)
+                }
                 let ended = gone.filter { sessions.contains($0.pid) }.count
                 self.record(History.Tally(processes: gone.count - ended, sessions: ended, automatic: automatic ? ended : 0, memory: bytes))
                 // Take the dead ones off the list right away; the rescan then confirms it.
@@ -290,12 +328,25 @@ final class Store: ObservableObject {
     /// Ends a session: the Claude Code process and what it has running, except protected processes.
     /// The conversation itself is not lost; `claude --resume` brings it back.
     func kill(running session: RunningSession) {
-        kill([session.process] + session.procs.filter { !isProtected($0) }, sessions: [session.process.pid])
+        kill([session.process] + session.procs.filter { !isProtected($0) }, sessions: [session.process.pid],
+             resumable: Store.resumable([session]))
     }
 
     func killIdleSessions(automatic: Bool = false) {
         let idle = idleSessions
-        kill(idle.flatMap { [$0.process] + $0.procs.filter { !isProtected($0) } }, sessions: Set(idle.map(\.process.pid)), automatic: automatic)
+        kill(idle.flatMap { [$0.process] + $0.procs.filter { !isProtected($0) } }, sessions: Set(idle.map(\.process.pid)),
+             automatic: automatic, resumable: Store.resumable(idle))
+    }
+
+    /// What it takes to bring each of these sessions back, noted while they are still running.
+    private static func resumable(_ sessions: [RunningSession]) -> [Int32: Resumable] {
+        Dictionary(sessions.compactMap { session in Resumable(session).map { (session.process.pid, $0) } }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// Takes a session off the list of those that can be resumed: it has been, or is not wanted back.
+    func forget(_ session: Resumable) {
+        ended.removeAll { $0.id == session.id }
+        Resumable.save(ended)
     }
 
     // MARK: - History
@@ -311,6 +362,11 @@ final class Store: ObservableObject {
     /// Shows a made-up history, for drawing the views that use it. Nothing is written.
     func pretend(history: History) {
         self.history = history
+    }
+
+    /// Shows made-up ended sessions, for drawing. Nothing is saved.
+    func pretend(ended: [Resumable]) {
+        self.ended = ended
     }
 
     /// Shows a made-up state of staying awake, for drawing. Nothing on the Mac is switched.

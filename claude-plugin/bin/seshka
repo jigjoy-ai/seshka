@@ -1,0 +1,30 @@
+#!/bin/sh
+# Runs seshka's own command line: the program inside the app. On the Bash tool's PATH while the plugin is enabled.
+#   seshka --leftovers [--here | --in <folder>]   what closed sessions left running, everywhere or under one folder
+#   seshka --clean [--here | --in <folder>]       kill it, except protected processes
+#
+# SESHKA_APP names another copy of the app to use, for trying a build that is not installed.
+NEEDS="0.6.0"
+
+run() {
+    program="$1/Contents/MacOS/Seshka"
+    [ -x "$program" ] || return 1
+    shift
+    # An older seshka does not know these commands and would start as an app instead.
+    has=$(/usr/bin/defaults read "$(dirname "$(dirname "$program")")/Info" CFBundleShortVersionString 2>/dev/null)
+    oldest=$(printf '%s\n%s\n' "$NEEDS" "$has" | /usr/bin/sort -t. -k1,1n -k2,2n -k3,3n | head -1)
+    if [ "$oldest" != "$NEEDS" ]; then
+        echo "This needs seshka $NEEDS or newer, and seshka ${has:-of an unknown version} is installed. Update it from its About tab." >&2
+        exit 1
+    fi
+    exec "$program" "$@"
+}
+
+[ -n "$SESHKA_APP" ] && run "$SESHKA_APP" "$@"
+run "/Applications/Seshka.app" "$@"
+run "$HOME/Applications/Seshka.app" "$@"
+# Anywhere else it was put: ask Spotlight.
+found=$(/usr/bin/mdfind "kMDItemCFBundleIdentifier == 'ai.jigjoy.seshka'" 2>/dev/null | head -1)
+[ -n "$found" ] && run "$found" "$@"
+echo "seshka is not installed. It is a free macOS menu bar app: https://seshka.dev" >&2
+exit 1

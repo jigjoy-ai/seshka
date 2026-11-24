@@ -1,0 +1,22 @@
+{
+	"name": "seshka",
+	"description": "Ties Claude Code to seshka, the macOS menu bar app that kills what sessions left running: a session's leftovers are cleaned up when it ends, Claude is told what earlier sessions left in the folder, and /seshka:status and /seshka:clean show and kill them.",
+	"version": "0.6.0",
+	"homepage": "https://seshka.dev",
+	"repository": "https://github.com/jigjoy-ai/seshka",
+	"license": "MIT",
+	"keywords": [
+		"seshka",
+		"processes",
+		"cleanup",
+		"macos",
+		"sessions"
+	],
+	"author": {
+		"name": "JigJoy",
+		"url": "https://jigjoy.ai"
+	},
+	"network": {
+		"hosts": []
+	}
+}

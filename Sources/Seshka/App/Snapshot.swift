@@ -28,6 +28,18 @@ enum Snapshot {
             }
             await save(ContentView(tab: .about).environmentObject(store).environmentObject(updater),
                        size: CGSize(width: 480, height: 600), to: "\(folder)/about-light.png", light: true)
+            // Two sessions seshka ended, with their way back.
+            store.pretend(ended: [
+                Resumable(id: "3fa81c20-0000-4000-8000-000000000001", title: "Upgrade to React 19", project: "Projects-marketing-site",
+                          folder: "/Users/dev/Projects/marketing-site", ended: Date().addingTimeInterval(-340)),
+                Resumable(id: "b72e09d4-0000-4000-8000-000000000002", title: "Refactor auth middleware", project: "Projects-payments-api",
+                          folder: "/Users/dev/Projects/payments-api", ended: Date().addingTimeInterval(-7400)),
+            ])
+            await save(ContentView(tab: .sessions).environmentObject(store).environmentObject(updater),
+                       size: CGSize(width: 480, height: 600), to: "\(folder)/sessions-ended.png")
+            await save(ContentView(tab: .settings).environmentObject(store).environmentObject(updater),
+                       size: CGSize(width: 480, height: 600), to: "\(folder)/settings-plugin.png")
+            store.pretend(ended: [])
             // The menu as it looks while an update waits for a restart.
             updater.announces = false
             updater.pretend(version: "9.9.9")

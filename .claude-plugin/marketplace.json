@@ -1,0 +1,16 @@
+{
+	"name": "seshka",
+	"owner": {
+		"name": "JigJoy"
+	},
+	"plugins": [
+		{
+			"name": "seshka",
+			"description": "Ties Claude Code to seshka, the macOS menu bar app that kills what closed sessions left running.",
+			"source": "./claude-plugin"
+		}
+	],
+	"metadata": {
+		"description": "The Claude Code plugin of seshka, the macOS menu bar app that kills what closed sessions left running."
+	}
+}

@@ -28,6 +28,10 @@ enum CLI {
             print(Disk.remove(item, context).map { "not removed: \($0)" } ?? "removed \(item.title)")
             return
         }
+        if args[0] == "--leftovers" || args[0] == "--clean" {
+            leftovers(args)
+            return
+        }
         if args[0] == "--list-after" {
             // The first scan starts the watch on open sessions. What they start while this waits is remembered.
             _ = Scanner.scan()
@@ -52,6 +56,7 @@ enum CLI {
                 case .other(let name): state = name
                 case .unknown: state = "unknown"
                 }
+                if let back = Resumable(s) { print("  resume in \(back.terminal ?? "the default terminal"): \(back.command)") }
                 print("  \(s.process.pid)\t\(state)\topen \(humanAge(s.process.age))\t\(formatBytes(s.memory))\t\(s.procs.count) bg\t\(s.title ?? s.project)")
             }
         case "--kill":
@@ -73,6 +78,44 @@ enum CLI {
             print("session \(pid): \(Killer.isRunning(pid) ? "STILL RUNNING" : "ended, freed \(formatBytes(session.memory))")")
         default:
             break
+        }
+    }
+
+    /// What the plugin's commands run: the leftover processes in words, and killing them.
+    private static func leftovers(_ args: [String]) {
+        // --here is the folder the command is run from: no path to quote, which Claude Code's own checks trip over.
+        let folder = args.count == 3 && args[1] == "--in" ? args[2]
+            : args.count == 2 && args[1] == "--here" ? FileManager.default.currentDirectoryPath : nil
+        let groups = Leftovers.inside(folder, Scanner.group(Scanner.scan().filter { !$0.sessionAlive }))
+        let procs = groups.flatMap(\.procs)
+        let place = folder.map { " in \(Disk.abbreviate($0))" } ?? ""
+        guard !procs.isEmpty else {
+            print("Nothing is left running by closed Claude Code sessions\(place).")
+            return
+        }
+        guard args[0] == "--clean" else {
+            print("\(procs.count) process\(procs.count == 1 ? "" : "es") left running by closed Claude Code sessions\(place), \(formatBytes(procs.reduce(0) { $0 + $1.memory })) in all:")
+            for group in groups {
+                for proc in group.procs { print("- " + Leftovers.line(proc, of: group)) }
+            }
+            return
+        }
+        // The same list of protected commands the app keeps, read from its settings.
+        let protected = (UserDefaults.standard.stringArray(forKey: "protectedPatterns") ?? ["limactl"]).map { $0.lowercased() }
+        let (kept, targets) = procs.reduce(into: ([Proc](), [Proc]())) { result, proc in
+            if protected.contains(where: { !$0.isEmpty && proc.command.lowercased().contains($0) }) { result.0.append(proc) } else { result.1.append(proc) }
+        }
+        Killer.terminate(targets)
+        let gone = targets.filter { !Killer.isRunning($0.pid) }
+        let freed = gone.reduce(UInt64(0)) { $0 + $1.memory }
+        print("Killed \(gone.count) of \(targets.count) process\(targets.count == 1 ? "" : "es")\(place), \(formatBytes(freed)) of memory back.")
+        for proc in targets where Killer.isRunning(proc.pid) { print("- still running: pid \(proc.pid) \(proc.shortCommand)") }
+        for proc in kept { print("- protected, left alone: pid \(proc.pid) \(proc.shortCommand)") }
+        // Counted with what the app itself cleaned up.
+        if !gone.isEmpty {
+            var history = History.load()
+            history.add(History.Tally(processes: gone.count, memory: freed))
+            history.save()
         }
     }
 
